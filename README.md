@@ -44,6 +44,7 @@ The core requires Python 3.11+ and no API credentials or provider SDKs.
 python -m pip install -e '.[test]'
 python -m pytest -q
 python -m thrumely.datapoint_sandbox --offline
+python -m thrumely.pilot_synthetic
 python -m thrumely.validate_candidates candidates/tasks-v0.1.jsonl
 python -m thrumely.power --tasks 100 --effect 0.20 --simulations 2000 --seed 20260901
 python -m thrumely.validate_normalization
@@ -148,6 +149,18 @@ Thrumely includes a dependency-free, sandbox-only Datapoint integration contract
 The platform decision is recorded in `docs/decisions/0002-datapoint-pairwise-forced-choice.md`. The primary 1–5 instruction-faithfulness rating uses Datapoint `rating` with `{context}` substitution. The secondary pairwise measure uses native forced-choice `comparison`; because Datapoint only guarantees the comparison job-level instruction is shown, Thrumely plans one comparison job per frozen benchmark task with that task's exact request embedded in the visible instruction.
 
 A real Datapoint sandbox round trip remains pending until `DATAPOINT_KEY` is available in a suitable execution environment. The current client hard-refuses `prod` and `all` job creation.
+
+## Pilot-analysis scaffolding
+
+`python -m thrumely.pilot_synthetic` exercises the pre-pilot analysis contract using deterministic synthetic observations only. It performs no network calls and spends no credits. The output is explicitly labeled `SYNTHETIC_PILOT_ONLY` and contains:
+
+- descriptive 1–5 rating summaries;
+- forced-choice A/B summaries;
+- a seeded **task-cluster** bootstrap example that weights tasks rather than treating annotator rows as independent tasks;
+- a planning path that estimates task-level contrast variance and feeds it into the existing prospective power simulator;
+- a raw Datapoint-credit projection with the default 20% remaining-reserve gate.
+
+This is readiness infrastructure, **not a completed human pilot**. Its synthetic power output is not achieved power, its synthetic agreement values are not worker-reliability evidence, and the reserve calculation uses raw Datapoint credits rather than assuming a dollar conversion. Pilot-derived variance and the actual per-response credit rate replace these fixtures only after real measurement data exists.
 
 ## Datapoint grant
 
