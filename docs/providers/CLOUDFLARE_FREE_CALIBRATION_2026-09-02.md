@@ -92,3 +92,29 @@ The first live trajectory is transport/instrumentation PASS only if all of the f
 9. no Datapoint job is created and no production-corpus/freeze state changes.
 
 A PASS establishes only that the free Cloudflare path can exercise the real Thrumely trajectory contract. It does **not** establish that Cloudflare quality tiers are equivalent to OpenAI/Google/BFL controls, that Gemma is comparable to the intended final controllers, or that the v1 provider/model matrix is ready to freeze.
+
+## First live canary result
+
+The guarded first live canary was executed on 2026-09-01 at 23:31 UTC from commit `75f33bc160c3c74cc7d244adac8727f95d22488e` using GitHub Actions run `33571363301`. It passed the credential guard, 17 Cloudflare-specific contract tests, dry-run no-network guard, live trajectory execution, post-run boundedness/redaction validation, and artifact upload. The ordinary repository CI workflow also passed on the same trigger commit.
+
+Observed trajectory facts:
+
+- task: `cal-openai-001`
+- completion status: `success`
+- infrastructure error: none
+- controller: `@cf/google/gemma-4-26b-a4b-it`
+- image backend: `@cf/black-forest-labs/flux-2-klein-4b`
+- controller decisions: 2 (`media`, then `finish`)
+- media calls: 1
+- provider retries: 0
+- generated artifact: JPEG, 1248x832, 158,349 bytes
+- media SHA-256: `a9de5620f27a906e9d9e108d32c7a79e46f03c063f5beaeb4628a7955f72da2f`
+- image request latency: 8.667268243 seconds
+- controller-reported Neurons: 13.272727012634277 on turn 1 and 16.290908813476562 on turn 2
+- image response usage: not reported by the provider response, so total trajectory Neuron consumption is not inferred from the evidence bundle
+- persisted provider endpoint: account identifier replaced by `{ACCOUNT_ID}`
+- credential/base64/private-reasoning scan: PASS
+
+The generated image also passed manual calibration review for the requested observable constraints: exactly three non-overlapping shapes on a white background, ordered blue square -> larger red circle -> yellow triangle. Gemma therefore finishing after the first generation was consistent with the calibration prompt rather than an obvious premature-stop failure.
+
+**Conclusion:** the Cloudflare path is a live transport/instrumentation PASS and is suitable for further zero-cost calibration work. This result does not alter the frozen v1 provider matrix, does not count as production benchmark evidence, and does not justify generalizing Cloudflare controller or image quality to the intended paid-provider conditions.
