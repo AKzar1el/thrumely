@@ -122,10 +122,7 @@ def test_first_decision_requires_generate_tool_and_uses_exact_backend_enum() -> 
     assert payload["model"] == MODEL
     assert payload["parallel_tool_calls"] is False
     assert payload["stream"] is False
-    assert payload["tool_choice"] == {
-        "type": "function",
-        "function": {"name": "generate_or_edit"},
-    }
+    assert payload["tool_choice"] == "required"
     assert [tool["function"]["name"] for tool in payload["tools"]] == ["generate_or_edit"]
     backend_schema = payload["tools"][0]["function"]["parameters"]["properties"]["backend"]
     assert backend_schema["enum"] == [BACKEND]
