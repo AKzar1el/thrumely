@@ -16,22 +16,23 @@ class _OfflineFakeTransport:
     def __call__(self, method: str, url: str, headers: Mapping[str, str], body: bytes | None, content_type: str | None):
         self.calls.append((method, url, dict(headers), body, content_type))
         path = url.split('/data-labelling/v1', 1)[1]
-        if method == 'POST' and path == '/jobs':
+        route = path.split('?', 1)[0]
+        if method == 'POST' and route == '/jobs':
             payload = json.loads((body or b'{}').decode('utf-8'))
             assert payload['serving_environment'] == 'sandbox'
             job_id = 'job_cmp' if payload['task_type'] == 'comparison' else 'job_rate'
             return 200, json.dumps({'job_id': job_id, 'name': payload['name'], 'task_type': payload['task_type'], 'serving_environment': 'sandbox', 'estimated_cost_credits': 0, 'credits_per_response': 0}).encode()
-        if method == 'GET' and path in {'/jobs/job_cmp', '/jobs/job_rate'}:
-            task_type = 'comparison' if path.endswith('job_cmp') else 'rating'
-            return 200, json.dumps({'job_id': path.rsplit('/', 1)[1], 'task_type': task_type, 'status': 'completed', 'serving_environment': 'sandbox', 'total_datapoints': 1, 'completed_datapoints': 1, 'total_responses': 5, 'max_responses_per_datapoint': 5, 'cost_credits': 0, 'credits_per_response': 0, 'refundable_credits': 0, 'errors': []}).encode()
-        if method == 'GET' and path == '/jobs/job_cmp/results':
-            return 200, json.dumps({'job_id': 'job_cmp', 'status': 'completed', 'task_type': 'comparison', 'results': [{'datapoint_index': 0, 'votes': {'A': 4, 'B': 1}, 'total_responses': 5, 'consensus': 'A', 'confidence': 0.8, 'agreement_rate': 0.8, 'media': [{'media_id': 'm_a', 'role': 'candidates', 'url': '/signed/a'}, {'media_id': 'm_b', 'role': 'candidates', 'url': '/signed/b'}]}]}).encode()
-        if method == 'GET' and path == '/jobs/job_rate/results':
-            return 200, json.dumps({'job_id': 'job_rate', 'status': 'completed', 'task_type': 'rating', 'results': [{'datapoint_index': 0, 'mean': 4.0, 'median': 4, 'distribution': {'3': 1, '4': 3, '5': 1}, 'total_responses': 5, 'weighted_mean': 4.0, 'weighted_distribution': {'3': 1.0, '4': 3.0, '5': 1.0}}]}).encode()
-        if method == 'GET' and path in {'/jobs/job_cmp/responses', '/jobs/job_rate/responses'}:
-            task_type = 'comparison' if 'job_cmp' in path else 'rating'
+        if method == 'GET' and route in {'/jobs/job_cmp', '/jobs/job_rate'}:
+            task_type = 'comparison' if route.endswith('job_cmp') else 'rating'
+            return 200, json.dumps({'job_id': route.rsplit('/', 1)[1], 'task_type': task_type, 'status': 'completed', 'serving_environment': 'sandbox', 'total_datapoints': 1, 'completed_datapoints': 1, 'total_responses': 5, 'max_responses_per_datapoint': 5, 'cost_credits': 0, 'credits_per_response': 0, 'refundable_credits': 0, 'errors': []}).encode()
+        if method == 'GET' and route == '/jobs/job_cmp/results':
+            return 200, json.dumps({'job_id': 'job_cmp', 'status': 'completed', 'task_type': 'comparison', 'page': 1, 'per_page': 1000, 'total_results': 1, 'results': [{'datapoint_index': 0, 'votes': {'A': 4, 'B': 1}, 'total_responses': 5, 'consensus': 'A', 'confidence': 0.8, 'agreement_rate': 0.8, 'media': [{'media_id': 'm_a', 'role': 'candidates', 'url': '/signed/a'}, {'media_id': 'm_b', 'role': 'candidates', 'url': '/signed/b'}]}]}).encode()
+        if method == 'GET' and route == '/jobs/job_rate/results':
+            return 200, json.dumps({'job_id': 'job_rate', 'status': 'completed', 'task_type': 'rating', 'page': 1, 'per_page': 1000, 'total_results': 1, 'results': [{'datapoint_index': 0, 'mean': 4.0, 'median': 4, 'distribution': {'3': 1, '4': 3, '5': 1}, 'total_responses': 5, 'weighted_mean': 4.0, 'weighted_distribution': {'3': 1.0, '4': 3.0, '5': 1.0}}]}).encode()
+        if method == 'GET' and route in {'/jobs/job_cmp/responses', '/jobs/job_rate/responses'}:
+            task_type = 'comparison' if 'job_cmp' in route else 'rating'
             response = 'A' if task_type == 'comparison' else '4'
-            return 200, json.dumps({'job_id': 'job_cmp' if task_type == 'comparison' else 'job_rate', 'task_type': task_type, 'responses': [{'datapoint_index': 0, 'response': response, 'response_label': response, 'response_time_ms': 2500, 'annotator_id': 'anon_0000000001', 'annotator_country': 'US', 'annotator_region': 'CA', 'annotator_city': 'San Francisco', 'timestamp': '2026-09-01 00:00:00+00:00'}]}).encode()
+            return 200, json.dumps({'job_id': 'job_cmp' if task_type == 'comparison' else 'job_rate', 'task_type': task_type, 'page': 1, 'per_page': 1000, 'total_responses': 1, 'total_pages': 1, 'responses': [{'datapoint_index': 0, 'response': response, 'response_label': response, 'response_time_ms': 2500, 'annotator_id': 'anon_0000000001', 'annotator_country': 'US', 'annotator_region': 'CA', 'annotator_city': 'San Francisco', 'timestamp': '2026-09-01 00:00:00+00:00'}]}).encode()
         return 404, json.dumps({'error': 'not found'}).encode()
 
 
@@ -49,10 +50,10 @@ def run_offline_sandbox() -> dict[str, object]:
     rating_create = client.create_sandbox_job(rating_payload)
     pairwise_status = client.get_job(str(pairwise_create['job_id']))
     rating_status = client.get_job(str(rating_create['job_id']))
-    pairwise_results_raw = client.get_results(str(pairwise_create['job_id']))
-    rating_results_raw = client.get_results(str(rating_create['job_id']))
-    pairwise_responses_raw = client.get_responses(str(pairwise_create['job_id']))
-    rating_responses_raw = client.get_responses(str(rating_create['job_id']))
+    pairwise_results_raw = client.get_all_results(str(pairwise_create['job_id']))
+    rating_results_raw = client.get_all_results(str(rating_create['job_id']))
+    pairwise_responses_raw = client.get_all_responses(str(pairwise_create['job_id']))
+    rating_responses_raw = client.get_all_responses(str(rating_create['job_id']))
 
     return {'mode': 'OFFLINE_FAKE_SANDBOX', 'network_calls': 0, 'jobs_created': 2, 'pairwise': {'serving_environment': pairwise_status['serving_environment'], 'cost_credits': pairwise_status['cost_credits'], 'normalized_results': normalize_comparison_results(pairwise_results_raw), 'public_responses': normalize_public_responses(pairwise_responses_raw)}, 'rating': {'serving_environment': rating_status['serving_environment'], 'cost_credits': rating_status['cost_credits'], 'normalized_results': normalize_rating_results(rating_results_raw), 'public_responses': normalize_public_responses(rating_responses_raw)}}
 
