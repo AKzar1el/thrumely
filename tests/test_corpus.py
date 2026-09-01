@@ -73,3 +73,22 @@ def test_from_dict_rejects_scalar_sequence_fields():
     payload["atomic_requirements"] = "redmug"
     with pytest.raises(ValueError, match="atomic_requirements"):
         CandidateTaskSpec.from_dict(payload)
+
+
+def test_from_dict_rejects_non_string_scalar_fields():
+    payload = make_task().to_dict()
+    payload["task_id"] = None
+    with pytest.raises(ValueError, match="task_id"):
+        CandidateTaskSpec.from_dict(payload)
+
+    payload = make_task().to_dict()
+    payload["human_rubric_notes"] = 123
+    with pytest.raises(ValueError, match="human_rubric_notes"):
+        CandidateTaskSpec.from_dict(payload)
+
+
+def test_from_dict_rejects_non_string_array_items():
+    payload = make_task().to_dict()
+    payload["atomic_requirements"] = [123]
+    with pytest.raises(ValueError, match="atomic_requirements"):
+        CandidateTaskSpec.from_dict(payload)
