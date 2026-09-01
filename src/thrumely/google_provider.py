@@ -119,9 +119,14 @@ class GoogleImageProvider:
         if client is None:
             try:
                 from google import genai
+                from google.genai import types
             except ImportError as exc:
                 raise RuntimeError("Google live adapter requires the 'google' optional dependency") from exc
-            client = genai.Client()
+            client = genai.Client(
+                http_options=types.HttpOptions(
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                )
+            )
         self.client = client
 
     def execute(
