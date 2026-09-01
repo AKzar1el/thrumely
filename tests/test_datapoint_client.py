@@ -54,3 +54,28 @@ def test_upload_media_builds_multipart_and_returns_dp_ref(tmp_path: Path):
     assert "multipart/form-data; boundary=" in content_type
     assert b"sample.png" in body and b"fixture" in body
     assert result["media_ref"] == "dp://a1b2c3d4e5f6/sample.png"
+
+
+def test_http_error_body_cannot_echo_api_key():
+    transport = FakeTransport([(401, {"detail": "invalid key dp_live_secret"})])
+    client = DatapointClient("dp_live_secret", transport=transport)
+    with pytest.raises(DatapointClientError) as exc:
+        client.get_job("job_1")
+    assert "dp_live_secret" not in str(exc.value)
+
+
+def test_job_id_rejects_path_metacharacters_before_transport():
+    transport = FakeTransport([])
+    client = DatapointClient("dp_live_secret", transport=transport)
+    for job_id in ("../jobs", "job_1/results", "job?x=1", ""):
+        with pytest.raises(ValueError, match="job_id"):
+            client.get_job(job_id)
+    assert transport.calls == []
+
+
+def test_upload_rejects_header_unsafe_filename(tmp_path: Path):
+    image = tmp_path / 'bad"name.png'
+    image.write_bytes(b"fixture")
+    client = DatapointClient("dp_live_secret", transport=FakeTransport([]))
+    with pytest.raises(ValueError, match="filename"):
+        client.upload_media(image)
