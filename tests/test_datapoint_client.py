@@ -79,3 +79,8 @@ def test_upload_rejects_header_unsafe_filename(tmp_path: Path):
     client = DatapointClient("dp_live_secret", transport=FakeTransport([]))
     with pytest.raises(ValueError, match="filename"):
         client.upload_media(image)
+
+
+def test_client_rejects_non_datapoint_base_url():
+    with pytest.raises(ValueError, match="base_url"):
+        DatapointClient("dp_live_secret", base_url="https://example.com/steal")
