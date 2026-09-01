@@ -136,3 +136,31 @@ def test_provider_exposes_logical_backend_id_separate_from_snapshot() -> None:
     provider = OpenAIImageProvider(client=FakeClient())
     assert provider.backend_id == "openai:gpt-image-2"
     assert provider.model == "gpt-image-2-2026-04-21"
+
+
+def test_provider_wraps_missing_media_payload_as_execution_error() -> None:
+    from thrumely.openai_provider import ProviderExecutionError
+
+    class MissingMediaImages:
+        def generate(self, **kwargs):
+            return SimpleNamespace(data=[], _request_id="req_missing", model="gpt-image-2-2026-04-21")
+
+    provider = OpenAIImageProvider(client=SimpleNamespace(images=MissingMediaImages()))
+    with pytest.raises(ProviderExecutionError, match="base64 media data"):
+        provider.execute(request())
+
+
+def test_provider_wraps_invalid_base64_payload_as_execution_error() -> None:
+    from thrumely.openai_provider import ProviderExecutionError
+
+    class InvalidMediaImages:
+        def generate(self, **kwargs):
+            return SimpleNamespace(
+                data=[SimpleNamespace(b64_json="not-valid-base64!!!")],
+                _request_id="req_invalid",
+                model="gpt-image-2-2026-04-21",
+            )
+
+    provider = OpenAIImageProvider(client=SimpleNamespace(images=InvalidMediaImages()))
+    with pytest.raises(ProviderExecutionError, match="decode"):
+        provider.execute(request())
