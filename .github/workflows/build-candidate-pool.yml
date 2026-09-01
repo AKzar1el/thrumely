@@ -1,0 +1,48 @@
+name: One-shot candidate pool reconstruction
+
+on:
+  push:
+    branches:
+      - feat/corpus-scoring-power
+    paths:
+      - '.github/workflows/build-candidate-pool.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  reconstruct:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/corpus-scoring-power
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reconstruct exact JSONL
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat candidates/.tasks-v0.1.part*.b64 | tr -d '\n' | base64 --decode | gzip --decompress > candidates/tasks-v0.1.jsonl
+          echo '056c98a787c1a533561acf017ca94d0eb9770bbf66f2a766807d0bef9302a4cf  candidates/tasks-v0.1.jsonl' | sha256sum --check --strict
+      - name: Validate semantic corpus hash and balance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -e '.[test]'
+          output="$(python -m thrumely.validate_candidates candidates/tasks-v0.1.jsonl)"
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -F 'Candidates: 150'
+          printf '%s\n' "$output" | grep -F 'Development SHA-256: 4c966a51911e3838abcfc219ce7b5b1445f3b3e181e7ea5609ca89948dbd4644'
+      - name: Commit reconstructed pool and remove staging mechanism
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm candidates/.tasks-v0.1.part*.b64
+          rm .github/workflows/build-candidate-pool.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add candidates/tasks-v0.1.jsonl candidates/.tasks-v0.1.part*.b64 .github/workflows/build-candidate-pool.yml
+          git commit -m 'data: add unfrozen candidate task pool'
+          git push origin HEAD:feat/corpus-scoring-power
