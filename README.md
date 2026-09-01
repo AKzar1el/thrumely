@@ -45,6 +45,7 @@ python -m pip install -e '.[test]'
 python -m pytest -q
 python -m thrumely.datapoint_sandbox --offline
 python -m thrumely.pilot_synthetic
+python -m thrumely.experiment_synthetic
 python -m thrumely.validate_candidates candidates/tasks-v0.1.jsonl
 python -m thrumely.power --tasks 100 --effect 0.20 --simulations 2000 --seed 20260901
 python -m thrumely.validate_normalization
@@ -161,6 +162,21 @@ A real Datapoint sandbox round trip remains pending until `DATAPOINT_KEY` is ava
 - a raw Datapoint-credit projection with the default 20% remaining-reserve gate.
 
 This is readiness infrastructure, **not a completed human pilot**. Its synthetic power output is not achieved power, its synthetic agreement values are not worker-reliability evidence, and the reserve calculation uses raw Datapoint credits rather than assuming a dollar conversion. Pilot-derived variance and the actual per-response credit rate replace these fixtures only after real measurement data exists.
+
+## Experiment planning and annotation manifests
+
+`python -m thrumely.experiment_synthetic` exercises the experiment-plan and annotation-manifest compiler entirely in memory. It is explicitly labeled `SYNTHETIC_EXPERIMENT_PLAN_ONLY` and reports zero network calls, zero hosted calls, zero Datapoint jobs, and zero credits spent.
+
+The compiler enforces the predeclared v1 topology without freezing the exact task or model choices: two controllers, three distinct fixed backends, one chooser exposing exactly those three backends, two media calls per environment, and two replications by default. Supplied task, controller, and environment configurations are content-addressed, so changing an instruction, model/configuration field, or environment semantics under the same human-readable ID changes the scientific cell and plan hashes.
+
+For the future frozen 100-task matrix, the compiler validates the planned arithmetic:
+
+- **1,600 trajectory cells / rating items** = 100 tasks × 2 controllers × 4 environments × 2 replications;
+- **1,200 chooser-vs-fixed pairs** = 100 × 2 controllers × 3 fixed backends × 2 replications;
+- **200 cross-controller chooser pairs** = 100 × 2 replications;
+- **1,400 pairwise items total**.
+
+Annotation manifests use task, trajectory, artifact, controller, environment, and replication identities rather than row order. They contain no Datapoint media URLs; upload/binding remains a later transport step. Missing, duplicate, failed, or extra trajectories fail closed instead of being silently omitted. This infrastructure is **not** a frozen corpus, production run, human-annotation result, or benchmark result.
 
 ## Datapoint grant
 
