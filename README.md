@@ -43,6 +43,7 @@ The core requires Python 3.11+ and no API credentials or provider SDKs.
 ```bash
 python -m pip install -e '.[test]'
 python -m pytest -q
+python -m thrumely.datapoint_sandbox --offline
 python -m thrumely.validate_candidates candidates/tasks-v0.1.jsonl
 python -m thrumely.power --tasks 100 --effect 0.20 --simulations 2000 --seed 20260901
 python -m thrumely.validate_normalization
@@ -139,6 +140,14 @@ A live calibration bundle writes:
 ```
 
 The bundle is classified `live-calibration`. There is deliberately no automatic quality score in this slice: its purpose is instrumentation/provenance calibration, not model ranking.
+
+## Datapoint sandbox integration
+
+Thrumely includes a dependency-free, sandbox-only Datapoint integration contract for the planned human evaluation. Normal CI runs `python -m thrumely.datapoint_sandbox --offline`, which uses a deterministic fake transport: it performs no network calls, reads no credentials, creates no real Datapoint jobs, and consumes zero credits.
+
+The platform decision is recorded in `docs/decisions/0002-datapoint-pairwise-forced-choice.md`. The primary 1–5 instruction-faithfulness rating uses Datapoint `rating` with `{context}` substitution. The secondary pairwise measure uses native forced-choice `comparison`; because Datapoint only guarantees the comparison job-level instruction is shown, Thrumely plans one comparison job per frozen benchmark task with that task's exact request embedded in the visible instruction.
+
+A real Datapoint sandbox round trip remains pending until `DATAPOINT_KEY` is available in a suitable execution environment. The current client hard-refuses `prod` and `all` job creation.
 
 ## Datapoint grant
 
