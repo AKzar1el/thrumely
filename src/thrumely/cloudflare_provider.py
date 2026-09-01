@@ -250,10 +250,13 @@ class CloudflareImageProvider:
         endpoint = (
             f"{self.base_url}/accounts/{self.account_id}/ai/run/{self.model}"
         )
+        evidence_endpoint = (
+            f"{self.base_url}/accounts/{{ACCOUNT_ID}}/ai/run/{self.model}"
+        )
         headers = {"Authorization": f"Bearer {self.api_token}"}
         raw_request: dict[str, Any] = {
             "model": self.model,
-            "endpoint": endpoint,
+            "endpoint": evidence_endpoint,
             "prompt": request.prompt,
             "width": width,
             "height": height,
