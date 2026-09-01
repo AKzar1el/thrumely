@@ -300,3 +300,16 @@ def test_preflight_blocks_tag_that_does_not_point_to_commit():
     report = evaluate_freeze_preflight(tampered)
     assert report.status == "BLOCKED"
     assert "tag_matches_commit" in report.failed_check_ids
+
+
+def test_preflight_rejects_malformed_backend_verification_metadata():
+    rows = list(backends())
+    rows[0] = replace(
+        rows[0],
+        verified_at="not-a-date",
+        source_urls=("https://",),
+    )
+    bundle = build_bundle(backend_rows=tuple(rows))
+    report = evaluate_freeze_preflight(bundle)
+    assert report.status == "BLOCKED"
+    assert "backend_inventory_verified" in report.failed_check_ids
