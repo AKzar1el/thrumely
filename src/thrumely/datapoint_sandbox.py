@@ -38,7 +38,11 @@ class _OfflineFakeTransport:
 def run_offline_sandbox() -> dict[str, object]:
     transport = _OfflineFakeTransport()
     client = DatapointClient('dp_test_fixture', transport=transport)
-    pairwise_payload = build_pairwise_sandbox_job('thrumely-offline-pairwise', [{'context': 'Create a red mug on a white table.', 'candidate_a': 'dp://aaaaaaaaaaaa/a.png', 'candidate_b': 'dp://bbbbbbbbbbbb/b.png'}])
+    pairwise_payload = build_pairwise_sandbox_job(
+        'thrumely-offline-pairwise',
+        'Create a red mug on a white table.',
+        [{'candidate_a': 'dp://aaaaaaaaaaaa/a.png', 'candidate_b': 'dp://bbbbbbbbbbbb/b.png'}],
+    )
     rating_payload = build_rating_sandbox_job('thrumely-offline-rating', [{'context': 'Create a red mug on a white table.', 'subject': 'dp://aaaaaaaaaaaa/a.png'}])
 
     pairwise_create = client.create_sandbox_job(pairwise_payload)
