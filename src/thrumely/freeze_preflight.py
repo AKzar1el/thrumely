@@ -3,7 +3,8 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import date, datetime
+from urllib.parse import urlparse
 
 from .freeze_bundle import FreezeReadyBundle, compute_freeze_bundle_sha256
 from .hashing import content_hash
@@ -49,6 +50,23 @@ def _is_utc_timestamp(value: str) -> bool:
     return parsed.tzinfo is not None and parsed.utcoffset() is not None and parsed.utcoffset().total_seconds() == 0
 
 
+def _is_iso_date(value: object) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_https_url(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    parsed = urlparse(value)
+    return parsed.scheme == "https" and bool(parsed.netloc)
+
+
 def _report_payload(report: FreezePreflightReport) -> dict[str, object]:
     return {
         "status": report.status,
@@ -73,9 +91,9 @@ def evaluate_freeze_preflight(bundle: FreezeReadyBundle) -> FreezePreflightRepor
             and backend.provider.strip()
             and backend.model.strip()
             and backend.version_status in {"pinned", "dated", "stable-alias"}
-            and backend.verified_at.strip()
+            and _is_iso_date(backend.verified_at)
             and backend.source_urls
-            and all(isinstance(url, str) and url.startswith("https://") for url in backend.source_urls)
+            and all(_is_https_url(url) for url in backend.source_urls)
             for backend in bundle.backends
         )
     )
@@ -207,7 +225,7 @@ def evaluate_freeze_preflight(bundle: FreezeReadyBundle) -> FreezePreflightRepor
         _check(
             "backend_inventory_verified",
             backend_verified,
-            "all three backend snapshots require provider/model/version status, verification date, and HTTPS source URLs",
+            "all three backend snapshots require provider/model/version status, ISO verification date, and valid HTTPS source URLs",
         ),
     )
     failed = tuple(check.check_id for check in checks if not check.passed)
