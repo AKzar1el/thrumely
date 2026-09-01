@@ -88,9 +88,10 @@ def test_provider_canary_executes_exactly_one_generation_and_exports_auditable_b
     assert manifest["data_classification"] == "live-provider-canary"
     assert manifest["provider"] == "google"
     assert manifest["task_id"] == "cal-openai-001"
-    assert manifest["requested_provider_requests"] == 1
-    assert manifest["completed_provider_requests"] == 1
-    assert manifest["maximum_provider_requests"] == 1
+    assert manifest["requested_provider_executions"] == 1
+    assert manifest["completed_provider_executions"] == 1
+    assert manifest["maximum_provider_executions"] == 1
+    assert manifest["maximum_transport_requests"] == 1
 
     task = json.loads((output / "task.json").read_text(encoding="utf-8"))
     assert task["task_id"] == "cal-openai-001"
@@ -154,7 +155,8 @@ def test_cli_google_is_dry_run_by_default_without_key_sdk_or_output(
     assert payload == {
         "aspect_ratio": "1:1",
         "live_execution_authorized": False,
-        "maximum_provider_requests": 1,
+        "maximum_provider_executions": 1,
+        "maximum_transport_requests": 1,
         "operation": "generate",
         "provider": "google",
         "quality_tier": "standard",
@@ -190,7 +192,8 @@ def test_cli_bfl_is_dry_run_by_default_without_key_or_output(
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "DRY_RUN_ONLY"
     assert payload["provider"] == "bfl"
-    assert payload["maximum_provider_requests"] == 1
+    assert payload["maximum_provider_executions"] == 1
+    assert payload["maximum_transport_requests"] == 62
 
 
 def test_cli_google_execute_live_requires_api_key_before_sdk_import(
