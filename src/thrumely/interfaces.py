@@ -11,6 +11,18 @@ def _require_text(name: str, value: str) -> None:
         raise ValueError(f"{name} must be a non-empty string")
 
 
+class ProviderExecutionError(RuntimeError):
+    """Typed provider/inference failure safe for calibration orchestration."""
+
+
+class ControllerExecutionError(RuntimeError):
+    """Typed controller transport/inference failure safe for calibration orchestration."""
+
+
+class ControllerProtocolError(RuntimeError):
+    """Typed controller-output contract failure safe for calibration orchestration."""
+
+
 @dataclass(frozen=True)
 class ProviderMediaResult:
     media_bytes: bytes
