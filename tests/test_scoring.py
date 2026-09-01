@@ -38,3 +38,8 @@ def test_metric_registry_is_unique_and_model_metrics_are_not_primary():
     assert {"tifa_style_qa", "vqascore", "clipscore", "hpsv2", "pairwise_vlm_judge", "aspect_ratio", "required_text", "tool_validity"} <= names
     assert all(not metric.primary_eligible for metric in metrics if metric.requires_model)
     assert all(metric.implementation_status in {"implemented", "future_optional"} for metric in metrics)
+
+
+def test_required_text_does_not_match_inside_larger_word():
+    assert required_text_score(("OPEN",), "REOPENED") == 0.0
+    assert required_text_score(("OPEN",), "OPEN TODAY") == 1.0
