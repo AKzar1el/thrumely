@@ -4,7 +4,7 @@
 
 **Goal:** Add deterministic v1 experiment-cell planning and provider-neutral human-annotation manifests without freezing tasks/providers or spending credits.
 
-**Architecture:** Reuse Thrumely's existing schema and canonical `content_hash` contract. Compile a strict scientific matrix first, then join completed trajectories to that matrix by explicit identity keys and derive rating/pairwise manifests. Add a synthetic zero-network CLI and CI gate.
+**Architecture:** Reuse Thrumely's existing schema and canonical `content_hash` contract. Compile a strict scientific matrix first, content-address the supplied task/controller/environment configurations, then join completed trajectories to that matrix by explicit identity keys and derive rating/pairwise manifests. Add a synthetic zero-network CLI and CI gate.
 
 **Tech Stack:** Python 3.11+, stdlib dataclasses, existing `thrumely.schema`, `thrumely.hashing`, pytest, GitHub Actions.
 
@@ -18,6 +18,7 @@
 - Every environment must have `media_call_budget == 2`.
 - Default replications = 2; arbitrary positive replication count remains supported for planning tests.
 - Exact task/controller/provider/backend names remain unfrozen.
+- Once supplied, task/controller/environment configuration content must affect plan and cell identity hashes.
 - No candidate-corpus promotion, provider calls, Datapoint jobs, or credit spend.
 - All new production behavior follows TDD: failing test first, then minimal implementation.
 
@@ -33,7 +34,7 @@
 - Consumes: `TaskSpec`, `ControllerConfig`, `ToolEnvironment`.
 - Produces: `ExperimentCell`, `ExperimentPlan`, `compile_experiment_plan(...)`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Cover:
 
@@ -45,53 +46,23 @@ assert plan.plan_sha256 == compile_experiment_plan(reversed_tasks, reversed_cont
 
 Also assert rejection of duplicate IDs, wrong controller count, wrong fixed/chooser structure, chooser/backend mismatch, and any environment whose media-call budget is not 2.
 
-- [ ] **Step 2: Run the focused test module and verify RED**
+- [x] **Step 2: Run the focused test module and verify RED**
 
-Run:
+Observed missing-module RED before implementation.
 
-```bash
-PYTHONPATH=src python -m pytest -q tests/test_experiment_plan.py
-```
+- [x] **Step 3: Implement minimal compiler**
 
-Expected: import/module failure because `thrumely.experiment_plan` does not exist.
+Immutable cells/plans include task/controller/environment configuration digests in addition to human-readable IDs. `compile_experiment_plan(...)` sorts identity inputs, normalizes environment backend order, expands the Cartesian product, derives full-hash `cell-*` IDs, and derives the plan hash from the full plan payload excluding `plan_id`/`plan_sha256`.
 
-- [ ] **Step 3: Implement minimal compiler**
+- [x] **Step 4: Run focused tests and verify GREEN**
 
-Create immutable dataclasses:
-
-```python
-@dataclass(frozen=True)
-class ExperimentCell:
-    cell_id: str
-    task_id: str
-    controller_id: str
-    environment_id: str
-    replication: int
-    environment_mode: str
-    available_backends: tuple[str, ...]
-    media_call_budget: int
-
-@dataclass(frozen=True)
-class ExperimentPlan:
-    plan_id: str
-    plan_sha256: str
-    data_classification: str
-    task_ids: tuple[str, ...]
-    controller_ids: tuple[str, ...]
-    environment_ids: tuple[str, ...]
-    replications: int
-    cells: tuple[ExperimentCell, ...]
-```
-
-`compile_experiment_plan(...)` sorts identity inputs, expands the Cartesian product, derives full-hash `cell-*` IDs, and derives plan hash from the full plan payload excluding `plan_id`/`plan_sha256`.
-
-- [ ] **Step 4: Run focused tests and verify GREEN**
-
-- [ ] **Step 5: Add 100-task arithmetic regression**
+- [x] **Step 5: Add 100-task arithmetic regression**
 
 Assert exactly `1600` cells for 100 synthetic task IDs, 2 controllers, 4 environments, 2 replications.
 
-- [ ] **Step 6: Run focused tests again**
+- [x] **Step 6: Add provenance-drift RED/GREEN regression**
+
+A pre-push review found that reusing the same task/controller ID with changed instruction/model content initially preserved the same plan hash. A new failing regression was added first, then the compiler was strengthened so task/controller/environment configuration digests are part of cell and plan identity.
 
 ---
 
@@ -105,17 +76,15 @@ Assert exactly `1600` cells for 100 synthetic task IDs, 2 controllers, 4 environ
 - Consumes: `ExperimentPlan`, task instruction mapping, `TrajectoryRecord` rows.
 - Produces: `RatingAnnotationItem`, `PairwiseAnnotationItem`, `AnnotationManifestBundle`, `compile_annotation_manifests(...)`.
 
-- [ ] **Step 1: Write failing happy-path tests**
+- [x] **Step 1: Write failing happy-path tests**
 
 Construct a small 2-task complete synthetic plan and successful trajectories in deliberately shuffled order. Assert rating items join to cells by `(task_id, controller_id, environment_id, replication)`, not row position.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
-```bash
-PYTHONPATH=src python -m pytest -q tests/test_annotation_manifest.py
-```
+Observed missing-module RED before implementation.
 
-- [ ] **Step 3: Implement strict trajectory join**
+- [x] **Step 3: Implement strict trajectory join**
 
 Build a unique identity-key mapping for all trajectories and reject:
 
@@ -129,21 +98,21 @@ missing final_artifact_id
 missing task instruction
 ```
 
-- [ ] **Step 4: Implement rating items**
+- [x] **Step 4: Implement rating items**
 
 Produce exactly one rating item per cell with deterministic full-hash annotation ID.
 
-- [ ] **Step 5: Implement pairwise items**
+- [x] **Step 5: Implement pairwise items**
 
-For each task/controller/replication, emit chooser-vs-each-fixed pairs. For each task/replication, emit one cross-controller chooser pair. Candidate identity ordering must be deterministic.
+For each task/controller/replication, emit chooser-vs-each-fixed pairs. For each task/replication, emit one cross-controller chooser pair. Candidate identity ordering is deterministic.
 
-- [ ] **Step 6: Implement bundle hash and counts**
+- [x] **Step 6: Implement bundle hash and counts**
 
 `manifest_sha256` hashes the plan SHA and manifest rows excluding the field itself.
 
-- [ ] **Step 7: Run focused tests and verify GREEN**
+- [x] **Step 7: Run focused tests and verify GREEN**
 
-- [ ] **Step 8: Add future v1 arithmetic regression**
+- [x] **Step 8: Add future v1 arithmetic regression**
 
 For 100 synthetic task IDs assert:
 
@@ -168,27 +137,21 @@ assert cross_controller_chooser_count == 200
 - Consumes: Task 1/2 APIs only.
 - Produces: a deterministic zero-network JSON preflight report.
 
-- [ ] **Step 1: Write failing CLI test**
+- [x] **Step 1: Write failing CLI test**
 
-Call `build_synthetic_report()` and assert:
+Call `build_synthetic_report()` and assert zero network, hosted calls, Datapoint jobs, and credits, plus deterministic formula counts/hashes.
 
-```python
-assert report["mode"] == "SYNTHETIC_EXPERIMENT_PLAN_ONLY"
-assert report["network_calls"] == 0
-assert report["hosted_calls"] == 0
-assert report["datapoint_jobs"] == 0
-assert report["credits_spent"] == 0
-```
+- [x] **Step 2: Run and verify RED**
 
-Also assert counts equal formulas for the small fixture and hashes are stable across repeated calls.
+Observed missing-module RED before implementation.
 
-- [ ] **Step 2: Run and verify RED**
-
-- [ ] **Step 3: Implement the synthetic fixture/CLI**
+- [x] **Step 3: Implement the synthetic fixture/CLI**
 
 Use only in-memory task/controller/backend IDs. Create synthetic successful `TrajectoryRecord` rows with placeholder artifact IDs. Do not read candidate or calibration files.
 
-- [ ] **Step 4: Run focused tests and verify GREEN**
+- [x] **Step 4: Run focused tests and verify GREEN**
+
+Local focused suite: 20 passing tests after the provenance-digest amendment.
 
 - [ ] **Step 5: Add CI command**
 
