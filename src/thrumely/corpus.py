@@ -71,23 +71,31 @@ class CandidateTaskSpec:
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "CandidateTaskSpec":
-        def sequence(name: str, *, default: tuple[object, ...] | None = None) -> tuple[str, ...]:
+        def scalar(name: str, *, default: str | None = None) -> str:
+            value = data.get(name, default) if default is not None else data[name]
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            return value
+
+        def sequence(name: str, *, default: tuple[str, ...] | None = None) -> tuple[str, ...]:
             value = data.get(name, default) if default is not None else data[name]
             if not isinstance(value, (list, tuple)):
                 raise ValueError(f"{name} must be a JSON array")
-            return tuple(str(item) for item in value)
+            if not all(isinstance(item, str) for item in value):
+                raise ValueError(f"{name} must contain only strings")
+            return tuple(value)
 
         return cls(
-            task_id=str(data["task_id"]),
-            family=str(data["family"]),
-            instruction=str(data["instruction"]),
-            target_aspect_ratio=str(data["target_aspect_ratio"]),
+            task_id=scalar("task_id"),
+            family=scalar("family"),
+            instruction=scalar("instruction"),
+            target_aspect_ratio=scalar("target_aspect_ratio"),
             atomic_requirements=sequence("atomic_requirements"),
             evaluation_questions=sequence("evaluation_questions"),
-            human_rubric_notes=str(data["human_rubric_notes"]),
+            human_rubric_notes=scalar("human_rubric_notes"),
             deterministic_checks=sequence("deterministic_checks"),
             risk_flags=sequence("risk_flags", default=()),
-            corpus_status=str(data.get("corpus_status", "candidate")),
+            corpus_status=scalar("corpus_status", default="candidate"),
         )
 
 
