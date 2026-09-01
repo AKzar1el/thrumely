@@ -39,10 +39,9 @@ jobs:
           import os
           import tempfile
           import time
-          import urllib.request
           from pathlib import Path
 
-          from thrumely.datapoint_client import BASE_URL, DatapointClient
+          from thrumely.datapoint_client import DatapointClient
           from thrumely.datapoint_protocol import build_pairwise_sandbox_job, build_rating_sandbox_job
 
           key = os.environ["DATAPOINT_KEY"]
@@ -95,13 +94,7 @@ jobs:
               rating_status = wait_ready(rating_id)
 
               def preview_count(job_id: str) -> int:
-                  req = urllib.request.Request(
-                      f"{BASE_URL}/jobs/{job_id}/preview",
-                      headers={"X-API-Key": key, "Accept": "application/json"},
-                      method="GET",
-                  )
-                  with urllib.request.urlopen(req, timeout=60) as response:
-                      payload = json.loads(response.read().decode("utf-8"))
+                  payload = client.get_preview(job_id)
                   data = payload.get("data") if isinstance(payload, dict) else None
                   tasks = data.get("tasks") if isinstance(data, dict) else None
                   return len(tasks) if isinstance(tasks, list) else 0
