@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import base64
 import struct
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -185,3 +186,20 @@ def test_provider_error_does_not_echo_sdk_exception_secrets() -> None:
         provider.execute(request())
     assert "sk-super-secret" not in str(captured.value)
     assert "RuntimeError" in str(captured.value)
+
+
+def test_default_sdk_client_disables_automatic_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+            self.images = FakeImages()
+
+    module = ModuleType("openai")
+    module.OpenAI = FakeOpenAI  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "openai", module)
+
+    OpenAIImageProvider()
+
+    assert captured["max_retries"] == 0

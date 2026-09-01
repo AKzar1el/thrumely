@@ -120,14 +120,27 @@ The first hosted calibration slice uses a benchmark-owned controller/tool interf
 - the five prompts in `calibration/tasks/openai-smoke.json` are calibration-only and are excluded from the future v1 task corpus;
 - at most two image calls are allowed per trajectory.
 
-When paid API access is deliberately enabled in a suitable environment, the existing calibration command is:
+The calibration CLI is now **dry-run by default** and requires one explicit calibration task ID. This zero-cost preflight validates the selected `cal-*` task and prints the hard two-media-call ceiling without loading the OpenAI SDK, requiring an API key, creating an output bundle, or making a hosted request:
+
+```bash
+python -m thrumely.calibration \
+  --tasks calibration/tasks/openai-smoke.json \
+  --task-id cal-openai-001 \
+  --output results/calibration
+```
+
+A hosted call is possible only when paid API access has been deliberately enabled, the optional OpenAI dependency is installed, `OPENAI_API_KEY` is already configured, and the operator additionally supplies `--execute-live`:
 
 ```bash
 python -m pip install -e '.[test,openai]'
 python -m thrumely.calibration \
   --tasks calibration/tasks/openai-smoke.json \
-  --output results/calibration
+  --task-id cal-openai-001 \
+  --output results/calibration \
+  --execute-live
 ```
+
+Even with `--execute-live`, the CLI executes exactly the selected calibration task and the existing environment contract permits at most two image calls. This is a **call-count safety bound**, not a fixed dollar-cost guarantee; provider pricing and controller-token usage remain external calibration-time facts.
 
 A live calibration bundle writes:
 
@@ -144,13 +157,13 @@ A live calibration bundle writes:
 
 The bundle is classified `live-calibration`. There is deliberately no automatic quality score in this slice: its purpose is instrumentation/provenance calibration, not model ranking.
 
-## Datapoint sandbox integration
+## Datapoint integration
 
-Thrumely includes a dependency-free, sandbox-only Datapoint integration contract for the planned human evaluation. Normal CI runs `python -m thrumely.datapoint_sandbox --offline`, which uses a deterministic fake transport: it performs no network calls, reads no credentials, creates no real Datapoint jobs, and consumes zero credits.
+Thrumely includes a dependency-free Datapoint integration contract for the planned human evaluation. Normal CI runs `python -m thrumely.datapoint_sandbox --offline`, which uses a deterministic fake transport: it performs no network calls, reads no credentials, creates no real Datapoint jobs, and consumes zero credits.
 
 The platform decision is recorded in `docs/decisions/0002-datapoint-pairwise-forced-choice.md`. The primary 1–5 instruction-faithfulness rating uses Datapoint `rating` with `{context}` substitution. The secondary pairwise measure uses native forced-choice `comparison`; because Datapoint only guarantees the comparison job-level instruction is shown, Thrumely plans one comparison job per frozen benchmark task with that task's exact request embedded in the visible instruction.
 
-A real Datapoint sandbox round trip remains pending until `DATAPOINT_KEY` is available in a suitable execution environment. The current client hard-refuses `prod` and `all` job creation.
+The live Datapoint transport has now been calibrated separately from provider/model calibration. An authenticated zero-credit sandbox round trip is recorded in `docs/datapoint/LIVE_SANDBOX_2026-09-01.md`. A deliberately trivial **one-response** production canary is recorded in `docs/datapoint/PAID_CANARY_2026-09-01.md`; it verified production transport, the hard response ceiling, billing, response collection, and parsing. That canary is not benchmark evidence, does not establish human reliability, and does not authorize the planned ~200-response pilot. The ordinary sandbox creation path remains sandbox-only, while the production-canary path is separately guarded and capped.
 
 ## Pilot-analysis scaffolding
 

@@ -98,7 +98,7 @@ class OpenAIImageProvider:
                 from openai import OpenAI
             except ImportError as exc:
                 raise RuntimeError("OpenAI live adapter requires the 'openai' optional dependency") from exc
-            client = OpenAI()
+            client = OpenAI(max_retries=0)
         self.client = client
 
     def execute(

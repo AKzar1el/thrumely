@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -212,3 +213,20 @@ def test_controller_error_does_not_echo_sdk_exception_secrets() -> None:
         controller.decide(task(), environment(), call_index=1)
     assert "sk-controller-secret" not in str(captured.value)
     assert "RuntimeError" in str(captured.value)
+
+
+def test_default_sdk_client_disables_automatic_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+            self.responses = FakeResponses(response_with_call("finish", {}))
+
+    module = ModuleType("openai")
+    module.OpenAI = FakeOpenAI  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "openai", module)
+
+    OpenAIController(config())
+
+    assert captured["max_retries"] == 0

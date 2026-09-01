@@ -109,6 +109,13 @@ def load_calibration_tasks(path: Path) -> tuple[TaskSpec, ...]:
     return tuple(tasks)
 
 
+def _select_calibration_task(tasks: tuple[TaskSpec, ...], task_id: str) -> tuple[TaskSpec, ...]:
+    selected = tuple(task for task in tasks if task.task_id == task_id)
+    if len(selected) != 1:
+        raise ValueError(f"unknown calibration task_id: {task_id}")
+    return selected
+
+
 def _public_task_path(task_path: Path, repo_root: Path) -> str:
     try:
         return task_path.resolve().relative_to(repo_root.resolve()).as_posix()
@@ -153,12 +160,15 @@ def run_calibration(
     controller: Any,
     provider: Any,
     *,
+    task_id: str | None = None,
     replication: int = 1,
     run_id: str | None = None,
 ) -> Path:
     if replication < 1:
         raise ValueError("replication must be >= 1")
     tasks = load_calibration_tasks(task_path)
+    if task_id is not None:
+        tasks = _select_calibration_task(tasks, task_id)
     repo_root = _repo_root()
     research_spec = repo_root / "RESEARCH_SPEC.md"
     if not research_spec.exists():
@@ -321,9 +331,35 @@ def _openai_sdk_version() -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run Thrumely's calibration-only OpenAI live pipeline")
     parser.add_argument("--tasks", type=Path, required=True)
+    parser.add_argument("--task-id", required=True, help="Execute exactly one calibration-only task ID")
     parser.add_argument("--output", type=Path, default=Path("results/calibration"))
     parser.add_argument("--replication", type=int, default=1)
+    parser.add_argument(
+        "--execute-live",
+        action="store_true",
+        help="Authorize live OpenAI API calls; omitted means zero-cost dry-run only",
+    )
     args = parser.parse_args()
+
+    tasks = load_calibration_tasks(args.tasks)
+    try:
+        _select_calibration_task(tasks, args.task_id)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    if not args.execute_live:
+        print(
+            json.dumps(
+                {
+                    "status": "DRY_RUN_ONLY",
+                    "task_id": args.task_id,
+                    "maximum_media_calls": 2,
+                    "live_execution_authorized": False,
+                },
+                sort_keys=True,
+            )
+        )
+        return
 
     if not os.environ.get("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY is required for live calibration")
@@ -345,6 +381,7 @@ def main() -> None:
         args.tasks,
         controller,
         provider,
+        task_id=args.task_id,
         replication=args.replication,
     )
     print(result)
