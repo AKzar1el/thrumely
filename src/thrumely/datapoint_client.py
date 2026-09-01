@@ -133,6 +133,10 @@ class DatapointClient:
         safe_id = _job_id(job_id)
         return self._request_json("GET", f"/jobs/{safe_id}")
 
+    def get_preview(self, job_id: str) -> dict[str, object]:
+        safe_id = _job_id(job_id)
+        return self._request_json("GET", f"/jobs/{safe_id}/preview")
+
     def get_results(self, job_id: str, *, page: int = 1, per_page: int = 100) -> dict[str, object]:
         safe_id = _job_id(job_id)
         if not isinstance(page, int) or isinstance(page, bool) or page < 1:
