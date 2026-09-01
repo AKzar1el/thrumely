@@ -146,8 +146,11 @@ class OpenAIImageProvider:
 
         data = getattr(result, "data", None) or []
         if not data or not getattr(data[0], "b64_json", None):
-            raise RuntimeError("OpenAI image response did not contain base64 media data")
-        media_bytes = base64.b64decode(data[0].b64_json, validate=True)
+            raise ProviderExecutionError("OpenAI image response did not contain base64 media data")
+        try:
+            media_bytes = base64.b64decode(data[0].b64_json, validate=True)
+        except ValueError as exc:
+            raise ProviderExecutionError("OpenAI image response media decode failed") from exc
         width, height = _dimensions(size)
         request_id = getattr(result, "_request_id", None) or getattr(result, "id", None)
         actual_model = getattr(result, "model", None) or self.model
