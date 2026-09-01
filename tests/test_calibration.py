@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
-from thrumely.calibration import load_calibration_tasks, run_calibration
+from thrumely.calibration import load_calibration_tasks, main, run_calibration
 from thrumely.interfaces import ControllerDecision, ProviderMediaResult
 from thrumely.openai_provider import ProviderExecutionError
 from thrumely.schema import ControllerConfig, MediaOperation, NormalizedMediaRequest
@@ -191,3 +192,82 @@ def test_provider_failure_becomes_explicit_error_trajectory(tmp_path: Path) -> N
     assert "synthetic provider outage" in trajectory["infrastructure_error"]
     assert trajectory["final_artifact_id"] is None
     assert trajectory["tool_calls"] == []
+
+
+def test_runner_can_hard_select_one_calibration_task(tmp_path: Path) -> None:
+    task_path = write_tasks(
+        tmp_path / "tasks.json",
+        tasks=[
+            {"task_id": "cal-openai-001", "family": "a", "instruction": "one"},
+            {"task_id": "cal-openai-002", "family": "b", "instruction": "two"},
+        ],
+    )
+    controller = FakeController()
+    output = run_calibration(
+        tmp_path / "results",
+        task_path,
+        controller,
+        FakeProvider(),
+        task_id="cal-openai-002",
+        run_id="calibration-one-task",
+    )
+
+    manifest = json.loads((output / "manifest.json").read_text())
+    trajectories = read_jsonl(output / "trajectories.jsonl")
+    assert manifest["requested_trajectories"] == 1
+    assert [row["task_id"] for row in trajectories] == ["cal-openai-002"]
+    assert controller.calls == [("cal-openai-002", 1), ("cal-openai-002", 2)]
+
+
+def test_cli_is_dry_run_by_default_without_api_key_or_sdk(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    task_path = write_tasks(tmp_path / "tasks.json")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "thrumely.calibration",
+            "--tasks",
+            str(task_path),
+            "--task-id",
+            "cal-openai-001",
+            "--output",
+            str(tmp_path / "results"),
+        ],
+    )
+
+    main()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "DRY_RUN_ONLY"
+    assert payload["task_id"] == "cal-openai-001"
+    assert payload["maximum_media_calls"] == 2
+    assert payload["live_execution_authorized"] is False
+    assert not (tmp_path / "results").exists()
+
+
+def test_cli_execute_live_still_requires_api_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_path = write_tasks(tmp_path / "tasks.json")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "thrumely.calibration",
+            "--tasks",
+            str(task_path),
+            "--task-id",
+            "cal-openai-001",
+            "--execute-live",
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="OPENAI_API_KEY"):
+        main()
