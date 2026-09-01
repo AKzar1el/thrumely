@@ -11,8 +11,11 @@ from .schema import ControllerConfig, TaskSpec, ToolEnvironment
 class ExperimentCell:
     cell_id: str
     task_id: str
+    task_spec_sha256: str
     controller_id: str
+    controller_config_sha256: str
     environment_id: str
+    environment_config_sha256: str
     replication: int
     environment_mode: str
     available_backends: tuple[str, ...]
@@ -25,8 +28,11 @@ class ExperimentPlan:
     plan_sha256: str
     data_classification: str
     task_ids: tuple[str, ...]
+    task_spec_sha256s: tuple[tuple[str, str], ...]
     controller_ids: tuple[str, ...]
+    controller_config_sha256s: tuple[tuple[str, str], ...]
     environment_ids: tuple[str, ...]
+    environment_config_sha256s: tuple[tuple[str, str], ...]
     replications: int
     cells: tuple[ExperimentCell, ...]
 
@@ -40,6 +46,35 @@ def _unique_by_id(items: Iterable[object], attr: str, label: str) -> tuple[objec
             raise ValueError(f"duplicate {label}: {value}")
         seen.add(value)
     return values
+
+
+def _task_identity(task: TaskSpec) -> dict[str, object]:
+    return {
+        "task_id": task.task_id,
+        "family": task.family,
+        "instruction": task.instruction,
+    }
+
+
+def _controller_identity(controller: ControllerConfig) -> dict[str, object]:
+    return {
+        "controller_id": controller.controller_id,
+        "provider": controller.provider,
+        "model": controller.model,
+        "reasoning_effort": controller.reasoning_effort,
+        "max_output_tokens": controller.max_output_tokens,
+        "system_prompt_sha256": controller.system_prompt_sha256,
+        "sdk_version": controller.sdk_version,
+    }
+
+
+def _environment_identity(environment: ToolEnvironment) -> dict[str, object]:
+    return {
+        "environment_id": environment.environment_id,
+        "mode": environment.mode,
+        "available_backends": tuple(sorted(environment.available_backends)),
+        "media_call_budget": environment.media_call_budget,
+    }
 
 
 def compile_experiment_plan(
@@ -84,6 +119,16 @@ def compile_experiment_plan(
     sorted_controllers = tuple(sorted(controller_rows, key=lambda item: item.controller_id))
     sorted_envs = tuple(sorted(environment_rows, key=lambda item: item.environment_id))
 
+    task_hashes = {task.task_id: content_hash(_task_identity(task)) for task in sorted_tasks}
+    controller_hashes = {
+        controller.controller_id: content_hash(_controller_identity(controller))
+        for controller in sorted_controllers
+    }
+    environment_hashes = {
+        environment.environment_id: content_hash(_environment_identity(environment))
+        for environment in sorted_envs
+    }
+
     cells: list[ExperimentCell] = []
     for task in sorted_tasks:
         for controller in sorted_controllers:
@@ -92,8 +137,11 @@ def compile_experiment_plan(
                 for replication in range(1, replications + 1):
                     identity = {
                         "task_id": task.task_id,
+                        "task_spec_sha256": task_hashes[task.task_id],
                         "controller_id": controller.controller_id,
+                        "controller_config_sha256": controller_hashes[controller.controller_id],
                         "environment_id": environment.environment_id,
+                        "environment_config_sha256": environment_hashes[environment.environment_id],
                         "replication": replication,
                         "environment_mode": environment.mode,
                         "available_backends": backends,
@@ -101,11 +149,23 @@ def compile_experiment_plan(
                     }
                     cells.append(ExperimentCell(cell_id=f"cell-{content_hash(identity)}", **identity))
 
+    task_spec_sha256s = tuple((task.task_id, task_hashes[task.task_id]) for task in sorted_tasks)
+    controller_config_sha256s = tuple(
+        (controller.controller_id, controller_hashes[controller.controller_id])
+        for controller in sorted_controllers
+    )
+    environment_config_sha256s = tuple(
+        (environment.environment_id, environment_hashes[environment.environment_id])
+        for environment in sorted_envs
+    )
     payload = {
         "data_classification": data_classification,
         "task_ids": tuple(task.task_id for task in sorted_tasks),
+        "task_spec_sha256s": task_spec_sha256s,
         "controller_ids": tuple(controller.controller_id for controller in sorted_controllers),
+        "controller_config_sha256s": controller_config_sha256s,
         "environment_ids": tuple(environment.environment_id for environment in sorted_envs),
+        "environment_config_sha256s": environment_config_sha256s,
         "replications": replications,
         "cells": tuple(cells),
     }
@@ -115,8 +175,11 @@ def compile_experiment_plan(
         plan_sha256=plan_sha256,
         data_classification=data_classification,
         task_ids=payload["task_ids"],
+        task_spec_sha256s=task_spec_sha256s,
         controller_ids=payload["controller_ids"],
+        controller_config_sha256s=controller_config_sha256s,
         environment_ids=payload["environment_ids"],
+        environment_config_sha256s=environment_config_sha256s,
         replications=replications,
         cells=tuple(cells),
     )
