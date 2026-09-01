@@ -35,6 +35,15 @@ def test_create_job_injects_key_but_refuses_non_sandbox_before_transport():
     assert len(transport.calls) == 1
 
 
+def test_json_requests_send_explicit_non_urllib_user_agent():
+    transport = FakeTransport([(200, {"job_id": "job_1"})])
+    client = DatapointClient("dp_live_secret", transport=transport)
+    client.get_job("job_1")
+    user_agent = transport.calls[0][2].get("User-Agent")
+    assert isinstance(user_agent, str) and user_agent.startswith("Thrumely/")
+    assert "urllib" not in user_agent.lower()
+
+
 def test_client_error_never_leaks_api_key():
     transport = FakeTransport(error=RuntimeError("request failed using dp_live_secret"))
     client = DatapointClient("dp_live_secret", transport=transport)
@@ -54,6 +63,17 @@ def test_upload_media_builds_multipart_and_returns_dp_ref(tmp_path: Path):
     assert "multipart/form-data; boundary=" in content_type
     assert b"sample.png" in body and b"fixture" in body
     assert result["media_ref"] == "dp://a1b2c3d4e5f6/sample.png"
+
+
+def test_media_upload_sends_same_explicit_user_agent(tmp_path: Path):
+    image = tmp_path / "sample.svg"
+    image.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>', encoding="utf-8")
+    transport = FakeTransport([(200, {"media": [{"media_id": "m_1", "media_ref": "dp://a1b2c3d4e5f6/sample.svg", "type": "image", "size_bytes": 41}]})])
+    client = DatapointClient("dp_live_secret", transport=transport)
+    client.upload_media(image)
+    user_agent = transport.calls[0][2].get("User-Agent")
+    assert isinstance(user_agent, str) and user_agent.startswith("Thrumely/")
+    assert "urllib" not in user_agent.lower()
 
 
 def test_http_error_body_cannot_echo_api_key():

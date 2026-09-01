@@ -13,6 +13,7 @@ from .redaction import sanitize_public_payload
 
 BASE_URL = "https://api.trydatapoint.com/data-labelling/v1"
 MAX_MEDIA_BYTES = 20_971_520
+USER_AGENT = "Thrumely/0.1 (+https://github.com/AKzar1el/thrumely)"
 Transport = Callable[[str, str, Mapping[str, str], bytes | None, str | None], tuple[int, bytes]]
 _JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -47,6 +48,10 @@ def _job_id(value: str) -> str:
     return value
 
 
+def _headers(api_key: str) -> dict[str, str]:
+    return {"X-API-Key": api_key, "Accept": "application/json", "User-Agent": USER_AGENT}
+
+
 class DatapointClient:
     def __init__(self, api_key: str, *, transport: Transport | None = None, base_url: str = BASE_URL):
         if not isinstance(api_key, str) or not api_key.strip():
@@ -64,7 +69,7 @@ class DatapointClient:
         if payload is not None:
             body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             content_type = "application/json"
-        headers = {"X-API-Key": self._api_key, "Accept": "application/json"}
+        headers = _headers(self._api_key)
         try:
             status, raw = self._transport(method, self._base_url + path, headers, body, content_type)
         except Exception as exc:
@@ -101,7 +106,7 @@ class DatapointClient:
             b"\r\n",
             f"--{boundary}--\r\n".encode(),
         ])
-        headers = {"X-API-Key": self._api_key, "Accept": "application/json"}
+        headers = _headers(self._api_key)
         try:
             status, raw = self._transport("POST", self._base_url + "/media", headers, body, f"multipart/form-data; boundary={boundary}")
         except Exception as exc:
@@ -127,6 +132,10 @@ class DatapointClient:
     def get_job(self, job_id: str) -> dict[str, object]:
         safe_id = _job_id(job_id)
         return self._request_json("GET", f"/jobs/{safe_id}")
+
+    def get_preview(self, job_id: str) -> dict[str, object]:
+        safe_id = _job_id(job_id)
+        return self._request_json("GET", f"/jobs/{safe_id}/preview")
 
     def get_results(self, job_id: str, *, page: int = 1, per_page: int = 100) -> dict[str, object]:
         safe_id = _job_id(job_id)
