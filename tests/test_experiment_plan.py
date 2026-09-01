@@ -108,3 +108,35 @@ def test_replications_must_be_positive_integer():
         compile_experiment_plan(make_tasks(), make_controllers(), make_envs(), replications=0)
     with pytest.raises(ValueError, match="replications must be a positive integer"):
         compile_experiment_plan(make_tasks(), make_controllers(), make_envs(), replications=True)
+
+
+def test_task_or_controller_configuration_drift_changes_plan_and_cell_identity():
+    tasks = make_tasks(1)
+    controllers = make_controllers()
+    envs = make_envs()
+    baseline = compile_experiment_plan(tasks, controllers, envs)
+
+    changed_task = (
+        TaskSpec(task_id=tasks[0].task_id, family=tasks[0].family, instruction="Changed instruction"),
+    )
+    task_plan = compile_experiment_plan(changed_task, controllers, envs)
+    assert task_plan.plan_sha256 != baseline.plan_sha256
+    assert {cell.cell_id for cell in task_plan.cells} != {cell.cell_id for cell in baseline.cells}
+
+    changed_controllers = (
+        ControllerConfig(
+            controller_id=controllers[0].controller_id,
+            provider=controllers[0].provider,
+            model="changed-model",
+        ),
+        controllers[1],
+    )
+    controller_plan = compile_experiment_plan(tasks, changed_controllers, envs)
+    assert controller_plan.plan_sha256 != baseline.plan_sha256
+    baseline_changed_controller_cells = {
+        cell.cell_id for cell in baseline.cells if cell.controller_id == controllers[0].controller_id
+    }
+    changed_controller_cells = {
+        cell.cell_id for cell in controller_plan.cells if cell.controller_id == controllers[0].controller_id
+    }
+    assert changed_controller_cells != baseline_changed_controller_cells
