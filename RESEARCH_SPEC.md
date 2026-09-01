@@ -157,22 +157,25 @@ The first five responses per production item remain the primary-analysis data ev
 
 ## Pairwise preference protocol
 
+Pairwise preference is a secondary endpoint. To guarantee that annotators see the exact task request using Datapoint's documented comparison contract, production pairwise collection creates **one Datapoint comparison job per benchmark task**. All predeclared A/B pairs for that benchmark task are batched as datapoints within the same job, and the exact original user instruction is embedded in the job-level instruction shown to annotators.
+
 Annotators see:
 
-- the original user instruction;
-- two final images at equivalent display size;
+- the exact original user instruction in the job-level question;
+- two final images at equivalent native display treatment;
 - no controller, provider, or model identity;
-- randomized left/right placement.
+- randomized on-screen candidate order while A/B identity remains tied to submission order.
 
 Question:
 
 > Imagine that you submitted the request above. Which result would you prefer to receive overall? Consider whether it satisfies the requested content, composition, text, style, and other constraints, as well as overall visual quality.
 
-Responses:
+Responses (**forced-choice A/B**):
 
 - Image A;
-- Image B;
-- Tie / no meaningful preference.
+- Image B.
+
+Datapoint's native comparison task does not expose an individual no-preference/tie response. Thrumely therefore uses native forced choice rather than transforming candidate images into a composite multiple-choice artifact. This change affects only the secondary pairwise measure; the **primary 1–5 instruction-faithfulness endpoint is unchanged**.
 
 ## Automated evaluation target
 
