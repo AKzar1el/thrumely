@@ -41,6 +41,12 @@ class FakeProvider:
         )
 
 
+class FailingProvider(FakeProvider):
+    def execute(self, request, previous_media=None):
+        self.calls.append((request, previous_media))
+        raise RuntimeError("Authorization: Bearer fake-failure-secret")
+
+
 def write_tasks(path: Path) -> Path:
     path.write_text(
         json.dumps(
@@ -90,6 +96,7 @@ def test_provider_canary_executes_exactly_one_generation_and_exports_auditable_b
     assert manifest["task_id"] == "cal-openai-001"
     assert manifest["requested_provider_executions"] == 1
     assert manifest["completed_provider_executions"] == 1
+    assert manifest["successful_provider_executions"] == 1
     assert manifest["maximum_provider_executions"] == 1
     assert manifest["maximum_transport_requests"] == 1
 
@@ -98,6 +105,7 @@ def test_provider_canary_executes_exactly_one_generation_and_exports_auditable_b
     assert "cal-openai-002" not in json.dumps(task)
 
     result = json.loads((output / "result.json").read_text(encoding="utf-8"))
+    assert result["status"] == "success"
     assert result["provider"] == "google"
     assert result["request_id"] == "provider-response-1"
     assert result["retry_count"] == 0
@@ -107,6 +115,33 @@ def test_provider_canary_executes_exactly_one_generation_and_exports_auditable_b
 
     serialized = "\n".join(path.read_text(errors="ignore") for path in output.glob("*.json"))
     assert "fake-provider-secret" not in serialized
+
+
+def test_provider_canary_records_terminal_failure_without_leaking_exception_text(tmp_path: Path) -> None:
+    task_path = write_tasks(tmp_path / "tasks.json")
+    provider = FailingProvider()
+
+    output = run_provider_canary(
+        tmp_path / "results",
+        task_path,
+        provider,
+        task_id="cal-openai-001",
+        run_id="provider-canary-failure",
+    )
+
+    assert len(provider.calls) == 1
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["completed_provider_executions"] == 1
+    assert manifest["successful_provider_executions"] == 0
+
+    result = json.loads((output / "result.json").read_text(encoding="utf-8"))
+    assert result == {
+        "error_type": "RuntimeError",
+        "provider": "google",
+        "status": "error",
+    }
+    serialized = "\n".join(path.read_text(errors="ignore") for path in output.glob("*.json"))
+    assert "fake-failure-secret" not in serialized
 
 
 def test_provider_canary_rejects_unknown_task_before_provider_call(tmp_path: Path) -> None:
