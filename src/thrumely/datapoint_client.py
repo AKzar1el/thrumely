@@ -128,10 +128,68 @@ class DatapointClient:
         safe_id = _job_id(job_id)
         return self._request_json("GET", f"/jobs/{safe_id}")
 
-    def get_results(self, job_id: str) -> dict[str, object]:
+    def get_results(self, job_id: str, *, page: int = 1, per_page: int = 100) -> dict[str, object]:
         safe_id = _job_id(job_id)
-        return self._request_json("GET", f"/jobs/{safe_id}/results")
+        if not isinstance(page, int) or isinstance(page, bool) or page < 1:
+            raise ValueError("page must be an integer >= 1")
+        if not isinstance(per_page, int) or isinstance(per_page, bool) or per_page < 1:
+            raise ValueError("per_page must be an integer >= 1")
+        return self._request_json("GET", f"/jobs/{safe_id}/results?page={page}&per_page={per_page}")
 
-    def get_responses(self, job_id: str) -> dict[str, object]:
+    def get_all_results(self, job_id: str, *, per_page: int = 1000) -> dict[str, object]:
+        page = 1
+        merged: dict[str, object] | None = None
+        rows: list[object] = []
+        while True:
+            payload = self.get_results(job_id, page=page, per_page=per_page)
+            current = payload.get("results")
+            total = payload.get("total_results")
+            if not isinstance(current, list):
+                raise DatapointClientError("Datapoint results response missing results list")
+            if not isinstance(total, int) or isinstance(total, bool) or total < 0:
+                raise DatapointClientError("Datapoint results response missing total_results")
+            if merged is None:
+                merged = dict(payload)
+            rows.extend(current)
+            if len(rows) >= total:
+                break
+            if not current:
+                raise DatapointClientError("Datapoint results pagination made no progress")
+            page += 1
+        assert merged is not None
+        merged["page"] = 1
+        merged["per_page"] = per_page
+        merged["results"] = rows
+        return merged
+
+    def get_responses(self, job_id: str, *, page: int = 1, per_page: int = 100) -> dict[str, object]:
         safe_id = _job_id(job_id)
-        return self._request_json("GET", f"/jobs/{safe_id}/responses")
+        if not isinstance(page, int) or isinstance(page, bool) or page < 1:
+            raise ValueError("page must be an integer >= 1")
+        if not isinstance(per_page, int) or isinstance(per_page, bool) or not 1 <= per_page <= 1000:
+            raise ValueError("per_page must be an integer in [1, 1000]")
+        return self._request_json("GET", f"/jobs/{safe_id}/responses?page={page}&per_page={per_page}")
+
+    def get_all_responses(self, job_id: str, *, per_page: int = 1000) -> dict[str, object]:
+        page = 1
+        merged: dict[str, object] | None = None
+        rows: list[object] = []
+        while True:
+            payload = self.get_responses(job_id, page=page, per_page=per_page)
+            current = payload.get("responses")
+            total_pages = payload.get("total_pages")
+            if not isinstance(current, list):
+                raise DatapointClientError("Datapoint responses response missing responses list")
+            if not isinstance(total_pages, int) or isinstance(total_pages, bool) or total_pages < 1:
+                raise DatapointClientError("Datapoint responses response missing total_pages")
+            if merged is None:
+                merged = dict(payload)
+            rows.extend(current)
+            if page >= total_pages:
+                break
+            page += 1
+        assert merged is not None
+        merged["page"] = 1
+        merged["per_page"] = per_page
+        merged["responses"] = rows
+        return merged
