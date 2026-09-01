@@ -153,10 +153,7 @@ class CloudflareController:
 
         if call_index == 1:
             tools = [_media_tool(environment, allow_edit=False)]
-            tool_choice: Any = {
-                "type": "function",
-                "function": {"name": "generate_or_edit"},
-            }
+            tool_choice: Any = "required"
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": task.instruction},
