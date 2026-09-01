@@ -1,4 +1,4 @@
-name: Datapoint one-response paid canary
+name: Datapoint balance read
 
 on:
   push:
@@ -11,134 +11,22 @@ permissions:
   contents: read
 
 jobs:
-  paid-canary:
+  balance-read:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     env:
       DATAPOINT_KEY: ${{ secrets.DATAPOINT_KEY }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Thrumely
-        run: python -m pip install -e .
-
-      - name: Run one-response production canary
+      - name: Read current Datapoint balance
         shell: bash
         run: |
           set -euo pipefail
           if [ -z "${DATAPOINT_KEY:-}" ]; then
-            echo "DATAPOINT_KEY repository secret is missing; no paid Datapoint request was made."
+            echo "DATAPOINT_KEY repository secret is missing; no Datapoint request was made."
             exit 2
           fi
-          python - <<'PY'
-          import json
-          import os
-          import tempfile
-          import time
-          from pathlib import Path
-
-          from thrumely.datapoint_client import DatapointClient
-          from thrumely.datapoint_protocol import PAIRWISE_INSTRUCTION_TEMPLATE
-
-          key = os.environ["DATAPOINT_KEY"]
-          run_id = os.environ.get("GITHUB_RUN_ID", str(int(time.time())))
-          client = DatapointClient(key)
-
-          svg_a = '''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" fill="white"/><rect x="156" y="156" width="200" height="200" fill="#d22"/></svg>'''
-          svg_b = '''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" fill="white"/><circle cx="256" cy="256" r="100" fill="#d22"/></svg>'''
-          prompt = "Create a red square centered on a white canvas."
-
-          with tempfile.TemporaryDirectory() as tmp:
-              root = Path(tmp)
-              a = root / "thrumely-canary-correct.svg"
-              b = root / "thrumely-canary-violation.svg"
-              a.write_text(svg_a, encoding="utf-8")
-              b.write_text(svg_b, encoding="utf-8")
-
-              media_a = client.upload_media(a)
-              media_b = client.upload_media(b)
-
-              payload = {
-                  "name": f"thrumely-paid-canary-{run_id}",
-                  "instruction": PAIRWISE_INSTRUCTION_TEMPLATE.format(user_instruction=prompt),
-                  "task_type": "comparison",
-                  "max_responses_per_datapoint": 1,
-                  "serving_environment": "prod",
-                  "datapoints": [
-                      {
-                          "media": {
-                              "candidates": [
-                                  {"url": media_a["media_ref"], "type": "image"},
-                                  {"url": media_b["media_ref"], "type": "image"},
-                              ]
-                          }
-                      }
-                  ],
-              }
-
-              created = client.create_production_canary_job(payload, max_estimated_credits=25)
-              job_id = str(created["job_id"])
-              print(json.dumps({
-                  "phase": "created",
-                  "job_id": job_id,
-                  "estimated_cost_credits": created.get("estimated_cost_credits"),
-                  "credits_per_response": created.get("credits_per_response"),
-                  "pricing": created.get("pricing"),
-              }, sort_keys=True))
-
-              terminal = {"completed", "failed", "blocked", "cancelled"}
-              status = None
-              for _ in range(90):
-                  status = client.get_job(job_id)
-                  if status.get("status") in terminal:
-                      break
-                  time.sleep(5)
-
-              if status is None:
-                  raise RuntimeError("Datapoint canary status was never available")
-
-              if status.get("status") not in terminal:
-                  cancelled = client.cancel_job(job_id)
-                  print(json.dumps({
-                      "phase": "timeout-cancelled",
-                      "job_id": job_id,
-                      "status": cancelled.get("status"),
-                      "cost_credits": cancelled.get("cost_credits"),
-                      "released_credits": cancelled.get("released_credits"),
-                  }, sort_keys=True))
-                  raise RuntimeError("Datapoint canary timed out before receiving one response; job cancelled")
-
-              responses = client.get_all_responses(job_id, per_page=1000)
-              results = client.get_all_results(job_id, per_page=1000)
-              rows = responses.get("responses", [])
-              result_rows = results.get("results", [])
-              if not isinstance(rows, list) or len(rows) > 1:
-                  raise RuntimeError("Datapoint canary violated the one-response ceiling")
-              if status.get("status") != "completed" or len(rows) != 1:
-                  raise RuntimeError(f"Datapoint canary ended as {status.get('status')} with {len(rows)} responses")
-
-              response = rows[0]
-              result = result_rows[0] if isinstance(result_rows, list) and result_rows else {}
-              summary = {
-                  "mode": "LIVE_DATAPOINT_ONE_RESPONSE_CANARY",
-                  "job_id": job_id,
-                  "status": status.get("status"),
-                  "serving_environment": status.get("serving_environment"),
-                  "max_responses_per_datapoint": status.get("max_responses_per_datapoint"),
-                  "total_responses": status.get("total_responses"),
-                  "credits_per_response": status.get("credits_per_response"),
-                  "cost_credits": status.get("cost_credits"),
-                  "refundable_credits": status.get("refundable_credits"),
-                  "response_label": response.get("response_label"),
-                  "response_time_ms": response.get("response_time_ms"),
-                  "annotator_country": response.get("annotator_country"),
-                  "consensus": result.get("consensus"),
-                  "confidence": result.get("confidence"),
-                  "expected_correct_candidate": "A",
-              }
-              print(json.dumps(summary, indent=2, sort_keys=True))
-          PY
+          curl --fail-with-body --silent --show-error \
+            -H "X-API-Key: ${DATAPOINT_KEY}" \
+            -H "Accept: application/json" \
+            https://api.trydatapoint.com/data-labelling/v1/billing/balance
+          echo
