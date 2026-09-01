@@ -7,6 +7,7 @@ import os
 import time
 import uuid
 from typing import Any, Callable, Mapping
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from .interfaces import ProviderExecutionError, ProviderMediaResult
@@ -117,6 +118,39 @@ def _redact_response(payload: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(result, dict) and "image" in result:
         result["image"] = "[MEDIA_BYTES_STORED_SEPARATELY]"
     return output
+
+
+def _http_error_summary(exc: HTTPError) -> str:
+    parts = [f"HTTP {exc.code}"]
+
+    try:
+        payload = json.loads(exc.read().decode("utf-8"))
+    except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+        payload = None
+
+    if isinstance(payload, Mapping):
+        errors = payload.get("errors")
+        if isinstance(errors, list):
+            for error in errors:
+                if not isinstance(error, Mapping):
+                    continue
+                code = error.get("code")
+                if isinstance(code, int) and not isinstance(code, bool):
+                    parts.append(f"code {code}")
+                    break
+                if isinstance(code, str) and code.isdigit():
+                    parts.append(f"code {int(code)}")
+                    break
+
+    retry_after = None
+    if exc.headers is not None:
+        retry_after = exc.headers.get("Retry-After")
+    if retry_after is not None:
+        retry_after_text = str(retry_after).strip()
+        if retry_after_text.isdigit():
+            parts.append(f"retry-after {int(retry_after_text)}s")
+
+    return ", ".join(parts)
 
 
 def _pillow_resize_for_edit(media_bytes: bytes) -> tuple[bytes, str]:
@@ -269,6 +303,10 @@ class CloudflareImageProvider:
         started = time.perf_counter()
         try:
             response = self.transport.post_multipart(endpoint, headers, fields, files)
+        except HTTPError as exc:
+            raise CloudflareProviderExecutionError(
+                f"Cloudflare image request failed ({_http_error_summary(exc)})"
+            ) from exc
         except Exception as exc:
             raise CloudflareProviderExecutionError(
                 f"Cloudflare image request failed ({type(exc).__name__})"
