@@ -21,6 +21,7 @@ jobs:
       - run: python -m thrumely.datapoint_sandbox --offline
       - run: python -m thrumely.pilot_synthetic
       - run: python -m thrumely.experiment_synthetic
+      - run: python -m thrumely.freeze_preflight --synthetic --output .ci-freeze-preflight
       - run: python -m thrumely.validate_candidates candidates/tasks-v0.1.jsonl
       - run: python -m thrumely.power --tasks 100 --effect 0.20 --simulations 2000 --seed 20260901
       - run: python -m thrumely.validate_normalization

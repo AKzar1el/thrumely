@@ -46,6 +46,7 @@ python -m pytest -q
 python -m thrumely.datapoint_sandbox --offline
 python -m thrumely.pilot_synthetic
 python -m thrumely.experiment_synthetic
+python -m thrumely.freeze_preflight --synthetic --output .freeze-preflight-synthetic
 python -m thrumely.validate_candidates candidates/tasks-v0.1.jsonl
 python -m thrumely.power --tasks 100 --effect 0.20 --simulations 2000 --seed 20260901
 python -m thrumely.validate_normalization
@@ -177,6 +178,41 @@ For the future frozen 100-task matrix, the compiler validates the planned arithm
 - **1,400 pairwise items total**.
 
 Annotation manifests use task, trajectory, artifact, controller, environment, and replication identities rather than row order. They contain no Datapoint media URLs; upload/binding remains a later transport step. Missing, duplicate, failed, or extra trajectories fail closed instead of being silently omitted. This infrastructure is **not** a frozen corpus, production run, human-annotation result, or benchmark result.
+
+## Freeze-ready production preflight
+
+`python -m thrumely.freeze_preflight --synthetic --output .freeze-preflight-synthetic` exercises the Gate-5 production-freeze contract without credentials, hosted inference, Datapoint jobs, or credit spend. The synthetic fixture intentionally looks like the future 100-task production matrix so CI can verify the complete structural contract, but it is permanently marked `synthetic_fixture=true`.
+
+The synthetic command is expected to report `BLOCKED`, with `not_synthetic_fixture` as the **only** failed check. That is the successful CI outcome: it proves that a structurally complete test fixture can never authorize production. The non-synthetic command path is intentionally not enabled yet because the real corpus, provider/model inventory, and analysis plan have not reached their scheduled freeze gates.
+
+A future real production freeze can return `PASS` only when all of the following are simultaneously true:
+
+- the benchmark commit is pinned and a named tag resolves to that exact commit;
+- the working tree is clean;
+- research-spec, task-corpus, analysis-plan, provider-inventory, and normalized-tool-schema SHA-256 values are present;
+- task, configuration, and analysis-plan states are explicitly `frozen-v1`;
+- the plan is classified `frozen-v1-production`;
+- the corpus is exactly 100 tasks with exactly 20 tasks in each of the five predeclared families;
+- the experiment plan is exactly two controllers, four environments, two replications, 1,600 trajectory cells, and a 3,200-call maximum inventory;
+- human-evaluation inventory is exactly 1,600 ratings plus 1,400 pairwise items, with five base responses per item for 15,000 base responses;
+- the three backend snapshots record provider/model identity, version status, verification date, and HTTPS source URLs;
+- the freeze bundle's content hash and component file hashes verify.
+
+The synthetic output directory is inspectable and content-addressed:
+
+```text
+<freeze-preflight>/
+├── freeze-metadata.json
+├── experiment-plan.json
+├── cells.jsonl
+├── tasks.jsonl
+├── configuration.json
+├── expected-outputs.json
+├── preflight.json
+└── bundle-manifest.json
+```
+
+`require_production_launch_allowed(...)` is the fail-closed library gate intended for the future production runner. No production runner is wired to hosted providers at this stage, so the current repository still cannot launch the v1 production matrix through this preflight code.
 
 ## Datapoint grant
 
