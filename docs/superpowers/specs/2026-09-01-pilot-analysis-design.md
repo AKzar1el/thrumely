@@ -28,12 +28,14 @@ This module is **planning and measurement infrastructure**, not the frozen confi
 
 ## Data contracts
 
-`src/thrumely/human_analysis.py` defines immutable records:
+`src/thrumely/human_analysis.py` defines immutable provider-neutral records:
 
 - `RatingObservation(task_id, item_id, annotator_id, rating)` where rating is integer 1–5.
 - `PairwiseObservation(task_id, item_id, annotator_id, choice)` where choice is `A` or `B`.
 
-The module does not require Datapoint-specific field names. A thin adapter can convert normalized Datapoint rows later.
+`src/thrumely/datapoint_analysis.py` is the explicit transport-to-analysis bridge. It joins normalized raw Datapoint responses to benchmark metadata through immutable `DatapointItemBinding(job_id, datapoint_index, task_id, item_id)` records, then converts Datapoint's documented string responses (`"1"`–`"5"` for ratings and `"A"`/`"B"` for comparisons) into the provider-neutral observation types.
+
+The adapter never infers benchmark identity from row order. Missing or duplicate `(job_id, datapoint_index)` bindings, task-type mismatches, and invalid response encodings fail closed.
 
 ## Per-item summaries
 
@@ -67,7 +69,7 @@ These are descriptive measurement checks. They do not define exclusions or alter
 Algorithm:
 
 1. Compute one mean value per task.
-2. Resample task IDs with replacement, preserving all observations belonging to a sampled task as a cluster.
+2. Resample task IDs with replacement, preserving the task as the resampling unit.
 3. For each replicate, compute the mean of the sampled task means.
 4. Report the observed task-weighted mean and percentile confidence interval.
 5. Use a required explicit seed for deterministic reproducibility.
