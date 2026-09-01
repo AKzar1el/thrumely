@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+import base64
+import io
+import time
+from typing import Any, Mapping
+
+from .interfaces import ProviderMediaResult
+from .schema import MediaOperation, NormalizedMediaRequest
+
+_MODEL = "gpt-image-2-2026-04-21"
+_SIZE_BY_ASPECT = {
+    "1:1": "1024x1024",
+    "3:2": "1536x1024",
+    "2:3": "1024x1536",
+    "16:9": "1536x864",
+    "9:16": "864x1536",
+}
+_QUALITY_BY_TIER = {
+    "draft": "low",
+    "standard": "medium",
+    "high": "high",
+}
+
+
+def aspect_ratio_to_size(aspect_ratio: str) -> str:
+    try:
+        return _SIZE_BY_ASPECT[aspect_ratio]
+    except KeyError as exc:
+        raise ValueError(f"unsupported normalized aspect ratio: {aspect_ratio}") from exc
+
+
+def quality_tier_to_openai(quality_tier: str) -> str:
+    try:
+        return _QUALITY_BY_TIER[quality_tier]
+    except KeyError as exc:
+        raise ValueError(f"unsupported normalized quality tier: {quality_tier}") from exc
+
+
+def _primitive(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Mapping):
+        return {str(key): _primitive(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_primitive(item) for item in value]
+    if hasattr(value, "model_dump"):
+        return _primitive(value.model_dump(mode="json", exclude_none=True))
+    if hasattr(value, "__dict__"):
+        return {
+            str(key): _primitive(item)
+            for key, item in vars(value).items()
+            if not str(key).startswith("_")
+        }
+    return str(value)
+
+
+def _redact_media_payload(payload: Any) -> Any:
+    primitive = _primitive(payload)
+    if not isinstance(primitive, dict):
+        return primitive
+    data = primitive.get("data")
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict) and "b64_json" in item:
+                item["b64_json"] = "[MEDIA_BYTES_STORED_SEPARATELY]"
+    return primitive
+
+
+def _usage_dict(result: Any) -> Mapping[str, Any]:
+    usage = getattr(result, "usage", None)
+    primitive = _primitive(usage)
+    return primitive if isinstance(primitive, dict) else {}
+
+
+def _dimensions(size: str) -> tuple[int, int]:
+    width, height = size.split("x", 1)
+    return int(width), int(height)
+
+
+class ProviderExecutionError(RuntimeError):
+    pass
+
+
+class OpenAIImageProvider:
+    provider = "openai"
+    backend_id = "openai:gpt-image-2"
+
+    def __init__(self, model: str = _MODEL, client: Any | None = None) -> None:
+        self.model = model
+        if client is None:
+            try:
+                from openai import OpenAI
+            except ImportError as exc:
+                raise RuntimeError("OpenAI live adapter requires the 'openai' optional dependency") from exc
+            client = OpenAI()
+        self.client = client
+
+    def execute(
+        self,
+        request: NormalizedMediaRequest,
+        previous_media: bytes | None = None,
+    ) -> ProviderMediaResult:
+        if not request.backend.startswith("openai:"):
+            raise ValueError(f"OpenAI provider cannot execute backend {request.backend!r}")
+
+        size = aspect_ratio_to_size(request.aspect_ratio)
+        quality = quality_tier_to_openai(request.quality_tier)
+        raw_request: dict[str, Any] = {
+            "model": self.model,
+            "prompt": request.prompt,
+            "size": size,
+            "quality": quality,
+            "output_format": "png",
+            "operation": request.operation.value,
+        }
+
+        started = time.perf_counter()
+        try:
+            if request.operation is MediaOperation.GENERATE:
+                result = self.client.images.generate(
+                    model=self.model,
+                    prompt=request.prompt,
+                    size=size,
+                    quality=quality,
+                    output_format="png",
+                )
+            else:
+                if previous_media is None:
+                    raise ValueError("edit_previous requires previous_media bytes")
+                image = io.BytesIO(previous_media)
+                image.name = "previous.png"
+                result = self.client.images.edit(
+                    model=self.model,
+                    image=image,
+                    prompt=request.prompt,
+                    size=size,
+                    quality=quality,
+                    output_format="png",
+                )
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ProviderExecutionError(f"OpenAI image request failed: {exc}") from exc
+        latency = time.perf_counter() - started
+
+        data = getattr(result, "data", None) or []
+        if not data or not getattr(data[0], "b64_json", None):
+            raise RuntimeError("OpenAI image response did not contain base64 media data")
+        media_bytes = base64.b64decode(data[0].b64_json, validate=True)
+        width, height = _dimensions(size)
+        request_id = getattr(result, "_request_id", None) or getattr(result, "id", None)
+        actual_model = getattr(result, "model", None) or self.model
+
+        return ProviderMediaResult(
+            media_bytes=media_bytes,
+            mime_type="image/png",
+            width=width,
+            height=height,
+            provider=self.provider,
+            model=str(actual_model),
+            raw_request=raw_request,
+            raw_response=_redact_media_payload(result),
+            request_id=str(request_id) if request_id else None,
+            latency_seconds=latency,
+            cost_usd=None,
+            moderation_status=None,
+            retry_count=0,
+            usage=_usage_dict(result),
+        )
