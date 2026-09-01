@@ -4,15 +4,54 @@ import argparse
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 from .calibration import load_calibration_tasks, run_calibration
 from .cloudflare_controller import CloudflareController
 from .cloudflare_provider import CloudflareImageProvider
-from .openai_controller import system_prompt_sha256
+from .interfaces import (
+    ControllerExecutionError as GenericControllerExecutionError,
+    ControllerProtocolError as GenericControllerProtocolError,
+    ProviderExecutionError as GenericProviderExecutionError,
+)
+from .openai_controller import (
+    ControllerExecutionError as CalibrationControllerExecutionError,
+    ControllerProtocolError as CalibrationControllerProtocolError,
+    system_prompt_sha256,
+)
+from .openai_provider import ProviderExecutionError as CalibrationProviderExecutionError
 from .schema import ControllerConfig
 
 _CONTROLLER_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 _IMAGE_MODEL = "@cf/black-forest-labs/flux-2-klein-4b"
+
+
+class _ControllerCalibrationAdapter:
+    def __init__(self, controller: CloudflareController) -> None:
+        self._controller = controller
+        self.config = controller.config
+
+    def decide(self, *args: Any, **kwargs: Any):
+        try:
+            return self._controller.decide(*args, **kwargs)
+        except GenericControllerProtocolError as exc:
+            raise CalibrationControllerProtocolError(str(exc)) from exc
+        except GenericControllerExecutionError as exc:
+            raise CalibrationControllerExecutionError(str(exc)) from exc
+
+
+class _ProviderCalibrationAdapter:
+    def __init__(self, provider: CloudflareImageProvider) -> None:
+        self._provider = provider
+        self.provider = provider.provider
+        self.model = provider.model
+        self.backend_id = provider.backend_id
+
+    def execute(self, *args: Any, **kwargs: Any):
+        try:
+            return self._provider.execute(*args, **kwargs)
+        except GenericProviderExecutionError as exc:
+            raise CalibrationProviderExecutionError(str(exc)) from exc
 
 
 def _require_task(task_path: Path, task_id: str) -> None:
@@ -75,15 +114,19 @@ def main() -> None:
         system_prompt_sha256=system_prompt_sha256(),
         sdk_version=None,
     )
-    controller = CloudflareController(
-        config,
-        account_id=account_id,
-        api_token=api_token,
+    controller = _ControllerCalibrationAdapter(
+        CloudflareController(
+            config,
+            account_id=account_id,
+            api_token=api_token,
+        )
     )
-    provider = CloudflareImageProvider(
-        model=_IMAGE_MODEL,
-        account_id=account_id,
-        api_token=api_token,
+    provider = _ProviderCalibrationAdapter(
+        CloudflareImageProvider(
+            model=_IMAGE_MODEL,
+            account_id=account_id,
+            api_token=api_token,
+        )
     )
     output = run_calibration(
         args.output,
