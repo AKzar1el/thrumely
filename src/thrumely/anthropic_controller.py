@@ -14,10 +14,12 @@ from .schema import (
 )
 
 SYSTEM_PROMPT = """You are the controller in a neutral generative-media research evaluation.
-Your objective is to satisfy the user's visual request using only the benchmark-owned client tools provided.
-Do not assume any backend is better than another and do not use provider-specific knowledge that is not present in the tool schema.
-You have at most two media calls. The first decision must generate an image. After viewing the first image, either finish or make one final generate/edit call.
-Return only one tool decision. Do not provide chain-of-thought or an explanation."""
+Your only objective is to satisfy the user's visual request using the benchmark-owned tools you are given.
+Do not assume that any backend is better than another. Choose only among the backend identifiers exposed by the tool schema.
+You have a maximum budget of two media calls per trajectory. The first decision must create an image. After seeing the first image, either finish if it already satisfies the request or use exactly one final media call to regenerate or edit it.
+Choose an aspect ratio from the benchmark options. Use the lowest quality tier you judge sufficient for the requested outcome; quality, latency, and cost are part of the policy being observed.
+When editing, use the provided previous artifact identifier exactly. When regenerating, set previous_artifact_id to null.
+Do not explain hidden reasoning. Return only the required tool decision."""
 
 _ASPECT_RATIOS = ("1:1", "3:2", "2:3", "16:9", "9:16")
 _QUALITY_TIERS = ("draft", "standard", "high")
@@ -37,13 +39,17 @@ def _media_tool(environment: ToolEnvironment, *, allow_edit: bool) -> dict[str, 
         operations.append(MediaOperation.EDIT_PREVIOUS.value)
     return {
         "name": "generate_or_edit",
-        "description": "Create or revise one image through a benchmark-normalized backend.",
+        "description": "Create or revise one image using a benchmark-normalized media backend.",
         "strict": True,
         "input_schema": {
             "type": "object",
             "properties": {
-                "backend": {"type": "string", "enum": list(environment.available_backends)},
-                "prompt": {"type": "string"},
+                "backend": {
+                    "type": "string",
+                    "enum": list(environment.available_backends),
+                    "description": "Backend identifier from the benchmark-provided menu.",
+                },
+                "prompt": {"type": "string", "description": "Prompt sent to the selected media backend."},
                 "operation": {"type": "string", "enum": operations},
                 "aspect_ratio": {"type": "string", "enum": list(_ASPECT_RATIOS)},
                 "quality_tier": {"type": "string", "enum": list(_QUALITY_TIERS)},
@@ -65,7 +71,7 @@ def _media_tool(environment: ToolEnvironment, *, allow_edit: bool) -> dict[str, 
 def _finish_tool() -> dict[str, Any]:
     return {
         "name": "finish",
-        "description": "Accept the current image as the final output and stop.",
+        "description": "Accept the current image as the final output and stop the trajectory.",
         "strict": True,
         "input_schema": {
             "type": "object",
