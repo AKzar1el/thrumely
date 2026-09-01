@@ -99,10 +99,15 @@ def test_edit_sends_base64_input_image_without_secret_persistence() -> None:
     assert "secret" not in repr(payload)
 
 
-def test_terminal_provider_failure_is_typed() -> None:
-    transport = FakeTransport([{"status": "Failed", "error": "moderated"}])
-    with pytest.raises(BFLProviderExecutionError, match="Failed"):
-        BFLImageProvider(transport=transport, api_key="x", poll_interval=0).execute(make_request())
+@pytest.mark.parametrize(
+    "status",
+    ["Error", "Failed", "Request Moderated", "Content Moderated", "Task not found"],
+)
+def test_documented_terminal_provider_statuses_fail_immediately(status: str) -> None:
+    transport = FakeTransport([{"status": status, "error": "provider terminal state"}])
+    with pytest.raises(BFLProviderExecutionError, match=f"terminal status {status}"):
+        BFLImageProvider(transport=transport, api_key="x", max_polls=3, poll_interval=0).execute(make_request())
+    assert len(transport.get_json_calls) == 1
 
 
 def test_polling_is_bounded() -> None:
