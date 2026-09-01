@@ -4,7 +4,7 @@
 
 **Goal:** Add a credential-free, sandbox-only Datapoint human-evaluation integration that validates Thrumely's pairwise and 1–5 rating contracts without spending credits.
 
-**Architecture:** Split the work into protocol builders, a dependency-free HTTP client with an injectable transport, normalized result parsers, and an offline fake-sandbox CLI. A hard safety boundary refuses any job whose `serving_environment` is not exactly `sandbox` before network transport is invoked.
+**Architecture:** Split the work into protocol builders, a dependency-free HTTP client with an injectable transport, normalized result parsers, and an offline fake-sandbox CLI. A hard safety boundary refuses any job whose `serving_environment` is not exactly `sandbox` before network transport is invoked. Pairwise jobs are scoped per benchmark task so the exact task request can be placed in Datapoint's documented job-level comparison instruction.
 
 **Tech Stack:** Python 3.11 standard library, pytest, existing Thrumely redaction/provenance utilities.
 
@@ -18,6 +18,7 @@
 - No API key may appear in public payloads, exceptions, logs, fixtures, or committed files.
 - Human instruction-faithfulness rating remains the primary endpoint.
 - Pairwise preference is secondary and uses Datapoint native forced-choice A/B.
+- Pairwise comparison must not rely on undocumented per-datapoint context rendering; the exact benchmark task request is embedded in the visible job-level instruction.
 - Final 100-task corpus remains unfrozen.
 - Core package remains dependency-free.
 
@@ -30,12 +31,12 @@
 - Create: `tests/test_datapoint_protocol.py`
 
 **Interfaces:**
-- Produces: `build_pairwise_sandbox_job(name, pairs, max_responses_per_datapoint=5) -> dict[str, object]`
+- Produces: `build_pairwise_sandbox_job(name, user_instruction, pairs, max_responses_per_datapoint=5) -> dict[str, object]`
 - Produces: `build_rating_sandbox_job(name, items, max_responses_per_datapoint=5) -> dict[str, object]`
 
-- [ ] **Step 1: Write failing tests** asserting pairwise uses `comparison`, contains exactly two image candidates, emits `serving_environment == "sandbox"`, and rating uses `[1,2,3,4,5]` with `{context}` in the instruction.
+- [ ] **Step 1: Write failing tests** asserting pairwise uses `comparison`, embeds the exact benchmark task request in the job-level instruction, contains exactly two image candidates per datapoint, emits `serving_environment == "sandbox"`, and rating uses `[1,2,3,4,5]` with `{context}` in the instruction.
 - [ ] **Step 2: Run `pytest tests/test_datapoint_protocol.py -q`** and confirm import/function failures.
-- [ ] **Step 3: Implement minimal immutable-input validation and payload construction.** Reject empty names, non-`dp://`/HTTPS media refs, malformed pair counts, and response counts outside Datapoint's documented range.
+- [ ] **Step 3: Implement minimal immutable-input validation and payload construction.** Reject empty names/instructions, non-`dp://`/HTTPS media refs, malformed pair counts, and response counts outside Datapoint's documented range.
 - [ ] **Step 4: Re-run focused tests** and require PASS.
 - [ ] **Step 5: Commit** `feat: add Datapoint sandbox protocol builders`.
 
@@ -53,7 +54,7 @@
 - [ ] **Step 1: Write failing tests** with a fake transport proving headers contain `X-API-Key`, `prod`/`all` payloads are rejected before transport, and sanitized exceptions never contain the key.
 - [ ] **Step 2: Run focused tests** and verify RED for missing client.
 - [ ] **Step 3: Implement transport protocol plus standard-library urllib fallback.** JSON calls use UTF-8; upload uses multipart/form-data with a generated boundary and filename-derived image type.
-- [ ] **Step 4: Add error sanitization** via existing `sanitize_public_payload` and bounded exception messages.
+- [ ] **Step 4: Add error and path hardening.** Remove the API key even if an upstream error value echoes it; reject unsafe job IDs and multipart filenames before transport.
 - [ ] **Step 5: Re-run focused tests** and require PASS.
 - [ ] **Step 6: Commit** `feat: add sandbox-only Datapoint client`.
 
@@ -102,9 +103,9 @@
 **Interfaces:**
 - Documents the platform constraint and secondary-endpoint change before production freeze.
 
-- [ ] **Step 1: Add a guardrail test** that the research spec no longer claims a per-annotator Tie option and explicitly says pairwise is forced-choice A/B on Datapoint.
+- [ ] **Step 1: Add a guardrail test** that the research spec no longer claims a per-annotator Tie option, explicitly says pairwise is forced-choice A/B on Datapoint, and requires one comparison job per benchmark task.
 - [ ] **Step 2: Verify RED against current spec.**
-- [ ] **Step 3: Amend only the pairwise secondary protocol.** Keep the primary 1–5 endpoint unchanged and record why composite-media emulation was rejected.
+- [ ] **Step 3: Amend only the pairwise secondary protocol.** Keep the primary 1–5 endpoint unchanged, guarantee prompt visibility through the job-level instruction, and record why composite-media emulation was rejected.
 - [ ] **Step 4: Document sandbox CLI and zero-credit status in README.**
 - [ ] **Step 5: Re-run guardrail/full tests.**
 - [ ] **Step 6: Commit** `docs: align pairwise protocol with Datapoint`.
