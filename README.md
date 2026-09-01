@@ -12,7 +12,9 @@ Thrumely is currently **pre-production research infrastructure**. The authoritat
 
 The zero-cost offline foundation is complete and continuously tested. It validates the research data contract with deterministic mock components, including provenance, artifact hashing, public redaction, and end-to-end export.
 
-A separate **live calibration path** now exists for one OpenAI controller candidate and one OpenAI image-backend candidate. Its purpose is to test whether the same research artifact contract survives real hosted APIs. Calibration output is **not benchmark evidence**, is not part of the future frozen v1 corpus, and must not be used to claim that one controller, model, provider, or policy performs better than another.
+A separate **live calibration path** exists for one OpenAI controller candidate and one OpenAI image-backend candidate. Its purpose is to test whether the same research artifact contract survives real hosted APIs. The credentialed hosted smoke is currently postponed; calibration output is **not benchmark evidence**, is not part of the future frozen v1 corpus, and must not be used to claim that one controller, model, provider, or policy performs better than another.
+
+Zero-cost scaffolding also exists for the remaining current candidates: Google `gemini-3.1-flash-image`, BFL `flux-2-pro`, and Anthropic `claude-opus-5`. These adapters are exercised only through fake clients/transports at this stage. Static schema compatibility is useful engineering evidence, but it is **not** evidence that the providers are scientifically equivalent or production-ready.
 
 The planned v1 experiment still targets:
 
@@ -40,7 +42,10 @@ The core requires Python 3.11+ and no API credentials or provider SDKs.
 python -m pip install -e '.[test]'
 python -m pytest -q
 python -m thrumely.offline --output .offline-results
+python -m thrumely.validate_normalization
 ```
+
+The normalization validator is intentionally labeled `STATIC_ONLY`. A successful exit means that the candidate adapters cover Thrumely's benchmark-owned operations, aspect ratios, and quality-tier labels at the schema level. It does **not** establish equivalent quality, API behavior, cost, latency, safety behavior, or output comparability; those remain live-calibration questions.
 
 The synthetic run writes:
 
@@ -55,6 +60,17 @@ The synthetic run writes:
 
 Synthetic output is explicitly marked `synthetic-offline`. The mock score only checks that an artifact exists; it is not a faithfulness or preference score.
 
+## Candidate provider scaffolding
+
+All provider SDKs remain optional. Installing the core test extra does not install or call hosted providers.
+
+- OpenAI: `openai==3.6.0`
+- Google: `google-genai==2.20.0`
+- Anthropic: `anthropic==1.2.0`
+- BFL: no mandatory third-party HTTP dependency; the adapter has an injectable transport and a standard-library fallback for a future live run.
+
+The current static mappings are calibration hypotheses, not frozen scientific equivalences. In particular, a normalized `quality_tier` maps to different native controls across providers and must be checked empirically before the production matrix is frozen.
+
 ## OpenAI live calibration
 
 The first hosted calibration slice uses a benchmark-owned controller/tool interface:
@@ -66,7 +82,7 @@ The first hosted calibration slice uses a benchmark-owned controller/tool interf
 - the five prompts in `calibration/tasks/openai-smoke.json` are calibration-only and are excluded from the future v1 task corpus;
 - at most two image calls are allowed per trajectory.
 
-Install the optional live dependency and run the calibration in an environment where `OPENAI_API_KEY` is already configured:
+When paid API access is deliberately enabled in a suitable environment, the existing calibration command is:
 
 ```bash
 python -m pip install -e '.[test,openai]'
