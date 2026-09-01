@@ -14,6 +14,7 @@ Build a zero-credit Datapoint integration path that can validate Thrumely's huma
 - `rating` supports a single image subject and a numeric response scale, matching the planned 1–5 instruction-faithfulness endpoint.
 - Native `comparison` presents exactly two same-type candidates and collects an A/B forced choice. Datapoint's reported `tie` is an aggregate exact-vote tie, not a per-annotator no-preference response.
 - Comparison candidate display order is randomized for annotators while A/B continues to map to submission order.
+- Datapoint explicitly documents `{context}` substitution for rating. Its comparison contract guarantees the job-level `instruction` is shown, but does not document per-datapoint context substitution for comparison.
 - Media can be uploaded and referenced using durable `dp://` URIs.
 - Raw responses are available separately from aggregate results.
 
@@ -25,11 +26,11 @@ References:
 
 ## Methodology decision: secondary pairwise becomes forced choice
 
-The pre-production research spec currently describes pairwise responses as `Image A`, `Image B`, or `Tie / no meaningful preference`. Datapoint's native comparison task does not expose a per-annotator tie option.
+The pre-production research spec originally described pairwise responses as `Image A`, `Image B`, or `Tie / no meaningful preference`. Datapoint's native comparison task does not expose a per-annotator tie option.
 
 For v1, use Datapoint's native A/B forced-choice comparison instead of manufacturing a composite image and multiple-choice task. This preserves native side-by-side rendering, randomized display order, and original media quality. Pairwise preference remains a secondary endpoint. The primary 1–5 instruction-faithfulness rating is unchanged.
 
-The authoritative research spec must be amended before production freeze so it does not claim a response option the measurement platform cannot collect.
+To guarantee that pairwise annotators see the original user request without relying on undocumented comparison-context behavior, create **one Datapoint comparison job per benchmark task**. Embed that task's exact request in the visible job-level instruction and batch all predeclared A/B pairs for the task as datapoints in that job.
 
 ## Architecture
 
@@ -39,17 +40,18 @@ The authoritative research spec must be amended before production freeze so it d
 
 It exposes:
 
-- `build_pairwise_sandbox_job(...) -> dict[str, object]`
-- `build_rating_sandbox_job(...) -> dict[str, object]`
+- `build_pairwise_sandbox_job(name, user_instruction, pairs, max_responses_per_datapoint=5) -> dict[str, object]`
+- `build_rating_sandbox_job(name, items, max_responses_per_datapoint=5) -> dict[str, object]`
 
 Both functions always emit `serving_environment: "sandbox"` and `max_responses_per_datapoint: 5` by default. There is no parameter that can switch these helpers to `prod` or `all`.
 
 Pairwise payload:
 
 - task type `comparison`;
-- exact benchmark instruction-faithfulness/preference wording;
+- one Datapoint comparison job per benchmark task;
+- exact original user instruction embedded in that job's visible `instruction`;
+- all predeclared A/B pairs for the task batched as datapoints within that job;
 - two image candidates per datapoint;
-- original user instruction in `context` for provenance, even though the comparison job-level question is the visible prompt;
 - stable Thrumely metadata retained outside Datapoint payloads so result rows can be rejoined by `datapoint_index`.
 
 Rating payload:
@@ -76,6 +78,9 @@ Hard safety constraints:
 
 - reject any job payload whose `serving_environment` is not exactly `sandbox`;
 - never log or export `X-API-Key`;
+- remove the raw API key even if an upstream error body echoes it under an unrelated field;
+- reject unsafe job IDs before constructing request paths;
+- reject multipart filenames containing header-unsafe characters;
 - sanitize external error payloads before exposing them publicly;
 - treat unknown response fields as forward-compatible extras;
 - preserve Datapoint job IDs, pricing fields, serving environment, and response counts when returned.
@@ -107,26 +112,27 @@ Raw annotator exports retain only fields needed for audit/statistics. Direct ide
 
 ### 4. Offline sandbox fixture
 
-`src/thrumely/datapoint_sandbox.py` provides a credential-free round-trip smoke using a fake transport and synthetic `dp://` media references. It must generate both one comparison job and one rating job, then parse fake status/results/raw-response envelopes.
+`src/thrumely/datapoint_sandbox.py` provides a credential-free round-trip smoke using a fake transport and synthetic `dp://` media references. It generates both one comparison job and one rating job, then parses fake status/results/raw-response envelopes.
 
 This is not a real Datapoint sandbox run. Its purpose is to prove the Thrumely-owned client/protocol/result contracts before a `DATAPOINT_KEY` is available.
 
-### 5. Real sandbox command
+### 5. Real sandbox execution gate
 
-The same module exposes an opt-in CLI path that requires `DATAPOINT_KEY` and refuses to run if the key is absent. It may upload supplied local synthetic image fixtures and submit only `serving_environment: sandbox` jobs.
+This zero-cost slice intentionally enables only the credential-free `--offline` contract. A real Datapoint sandbox round trip is the next measurement check once `DATAPOINT_KEY` is available in a suitable execution environment. That future path must reuse the same sandbox-only client boundary and may not expose a `prod` or `all` switch.
 
 No real job is executed in normal CI.
 
 ## Testing
 
-TDD coverage must include:
+TDD coverage includes:
 
-- pairwise payload is forced-choice comparison with exactly two image candidates;
+- pairwise payload is forced-choice comparison with exactly two image candidates and the task request in the job-level instruction;
 - rating payload carries the five-point scale and `{context}`;
 - every builder emits `sandbox` and cannot be configured to `prod`;
 - client rejects manually crafted `prod` / `all` jobs before transport invocation;
 - API key is present in request headers but absent from exceptions and public payloads;
-- media multipart upload is deterministic enough for fake-transport assertions;
+- HTTP error payloads cannot echo the API key into exceptions;
+- unsafe job IDs and multipart filenames are rejected before transport;
 - aggregate comparison/rating parsing works with documented fields plus unknown extras;
 - raw-response public normalization strips city/region and keeps anonymized annotator ID/country/response timing;
 - offline fake round trip exercises create/status/results/responses for both task types;
@@ -134,13 +140,13 @@ TDD coverage must include:
 
 ## CI gate
 
-Normal CI must add:
+Normal CI adds:
 
 ```bash
 python -m thrumely.datapoint_sandbox --offline
 ```
 
-It must require no credentials and perform no network calls.
+It requires no credentials and performs no network calls.
 
 ## Explicit non-goals
 
