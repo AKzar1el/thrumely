@@ -153,9 +153,9 @@ Use only in-memory task/controller/backend IDs. Create synthetic successful `Tra
 
 Local focused suite: 20 passing tests after the provenance-digest amendment.
 
-- [ ] **Step 5: Add CI command**
+- [x] **Step 5: Add CI command**
 
-Append:
+CI now runs:
 
 ```yaml
 - run: python -m thrumely.experiment_synthetic
@@ -163,11 +163,13 @@ Append:
 
 without removing any existing gate.
 
-- [ ] **Step 6: Update README**
+- [x] **Step 6: Update README**
 
-Document the experiment compiler as pre-production planning infrastructure, state the 1600/1400 future v1 arithmetic, and explicitly state that synthetic output is not a frozen corpus/run or human annotation result.
+README documents the experiment compiler as pre-production planning infrastructure, records the future 1600/1400 arithmetic, and states that synthetic output is not a frozen corpus/run or human annotation result.
 
-- [ ] **Step 7: Run full suite**
+- [x] **Step 7: Run full suite**
+
+The exact feature head before this completion-log commit passed GitHub Actions with `161 passed` and all commands below exiting 0:
 
 ```bash
 python -m pytest -q
@@ -180,7 +182,7 @@ python -m thrumely.validate_normalization
 python -m thrumely.offline --output .ci-offline
 ```
 
-Expected: all commands exit 0; all synthetic commands report no network/credit spend.
+The final documentation-complete head must pass the same CI gate again before PR creation.
 
 ---
 
