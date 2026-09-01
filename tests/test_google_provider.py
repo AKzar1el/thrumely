@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import base64
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -122,3 +123,39 @@ def test_wrong_backend_is_rejected_before_call() -> None:
     with pytest.raises(ValueError, match="cannot execute backend"):
         GoogleImageProvider(client=client).execute(request)
     assert client.interactions.calls == []
+
+
+def test_default_google_sdk_client_disables_automatic_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeHttpRetryOptions:
+        def __init__(self, *, attempts: int) -> None:
+            self.attempts = attempts
+
+    class FakeHttpOptions:
+        def __init__(self, *, retry_options) -> None:
+            self.retry_options = retry_options
+
+    class FakeClientFactory:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+            self.interactions = FakeInteractions(fake_response(png_bytes()))
+
+    genai_module = ModuleType("google.genai")
+    genai_module.Client = FakeClientFactory  # type: ignore[attr-defined]
+    types_namespace = SimpleNamespace(
+        HttpRetryOptions=FakeHttpRetryOptions,
+        HttpOptions=FakeHttpOptions,
+    )
+    genai_module.types = types_namespace  # type: ignore[attr-defined]
+
+    google_module = ModuleType("google")
+    google_module.genai = genai_module  # type: ignore[attr-defined]
+
+    monkeypatch.setitem(sys.modules, "google", google_module)
+    monkeypatch.setitem(sys.modules, "google.genai", genai_module)
+
+    GoogleImageProvider()
+
+    http_options = captured["http_options"]
+    assert http_options.retry_options.attempts == 1
