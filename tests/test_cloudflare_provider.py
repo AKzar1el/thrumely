@@ -108,6 +108,10 @@ def test_generation_uses_one_multipart_request_and_redacts_media() -> None:
     assert result.retry_count == 0
     assert (result.width, result.height) == (1024, 1024)
     assert "Authorization" not in result.raw_request
+    assert result.raw_request["endpoint"].endswith(
+        "/accounts/{ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-2-klein-4b"
+    )
+    assert "account-test" not in str(result.raw_request)
     assert result.raw_response["result"]["image"] == "[MEDIA_BYTES_STORED_SEPARATELY]"
     assert "secret-token" not in str(result.raw_request)
     assert "secret-token" not in str(result.raw_response)
