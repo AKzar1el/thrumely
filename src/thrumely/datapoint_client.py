@@ -129,6 +129,61 @@ class DatapointClient:
             raise ValueError("Datapoint client refuses non-sandbox job creation")
         return self._request_json("POST", "/jobs", payload=payload)
 
+    def create_production_canary_job(
+        self,
+        payload: Mapping[str, object],
+        *,
+        max_estimated_credits: int = 25,
+    ) -> dict[str, object]:
+        if not isinstance(max_estimated_credits, int) or isinstance(max_estimated_credits, bool) or max_estimated_credits < 1:
+            raise ValueError("canary max_estimated_credits must be an integer >= 1")
+        if payload.get("serving_environment") != "prod":
+            raise ValueError("production canary requires serving_environment=prod")
+        if payload.get("task_type") != "comparison":
+            raise ValueError("production canary requires task_type=comparison")
+        if payload.get("max_responses_per_datapoint") != 1:
+            raise ValueError("production canary requires exactly one response per datapoint")
+        datapoints = payload.get("datapoints")
+        if not isinstance(datapoints, list) or len(datapoints) != 1:
+            raise ValueError("production canary requires exactly one datapoint")
+        if payload.get("annotator_filter") not in (None, {}):
+            raise ValueError("production canary forbids audience targeting")
+        if "dimensions" in payload or "steps" in payload:
+            raise ValueError("production canary forbids dimensions and chains")
+
+        created = self._request_json("POST", "/jobs", payload=payload)
+        job_id = _job_id(created.get("job_id"))
+        estimated = created.get("estimated_cost_credits")
+        rate = created.get("credits_per_response")
+        pricing_ok = (
+            isinstance(estimated, int)
+            and not isinstance(estimated, bool)
+            and estimated >= 0
+            and isinstance(rate, int)
+            and not isinstance(rate, bool)
+            and rate >= 0
+            and estimated == rate
+        )
+        if not pricing_ok:
+            try:
+                self.cancel_job(job_id)
+            except Exception as exc:
+                detail = _safe_error_message(self._api_key, exc)
+                raise DatapointClientError(
+                    f"Datapoint canary pricing validation failed; automatic cancellation failed: {detail}"
+                ) from None
+            raise DatapointClientError("Datapoint canary pricing validation failed; job cancelled")
+        if estimated > max_estimated_credits:
+            try:
+                self.cancel_job(job_id)
+            except Exception as exc:
+                detail = _safe_error_message(self._api_key, exc)
+                raise DatapointClientError(
+                    f"Datapoint canary exceeded credit cap; automatic cancellation failed: {detail}"
+                ) from None
+            raise DatapointClientError("Datapoint canary exceeded credit cap; job cancelled")
+        return created
+
     def get_job(self, job_id: str) -> dict[str, object]:
         safe_id = _job_id(job_id)
         return self._request_json("GET", f"/jobs/{safe_id}")
@@ -136,6 +191,14 @@ class DatapointClient:
     def get_preview(self, job_id: str) -> dict[str, object]:
         safe_id = _job_id(job_id)
         return self._request_json("GET", f"/jobs/{safe_id}/preview")
+
+    def cancel_job(self, job_id: str) -> dict[str, object]:
+        safe_id = _job_id(job_id)
+        return self._request_json("POST", f"/jobs/{safe_id}/cancel")
+
+    def complete_job(self, job_id: str) -> dict[str, object]:
+        safe_id = _job_id(job_id)
+        return self._request_json("POST", f"/jobs/{safe_id}/complete")
 
     def get_results(self, job_id: str, *, page: int = 1, per_page: int = 100) -> dict[str, object]:
         safe_id = _job_id(job_id)
