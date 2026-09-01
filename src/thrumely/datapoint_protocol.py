@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Iterable, Mapping
 
-PAIRWISE_INSTRUCTION = (
-    "Imagine that you submitted the request shown for this item. Which result would you prefer to receive overall? "
-    "Consider whether it satisfies the requested content, composition, text, style, and other constraints, as well as overall visual quality."
+PAIRWISE_INSTRUCTION_TEMPLATE = (
+    "Imagine that you submitted the following request:\n\n{user_instruction}\n\n"
+    "Which result would you prefer to receive overall? Consider whether it satisfies the requested content, "
+    "composition, text, style, and other constraints, as well as overall visual quality."
 )
 RATING_INSTRUCTION = "How faithfully does this image satisfy the user's request?\n\nUser request: {context}"
 RATING_LABELS = {
@@ -37,23 +38,23 @@ def _response_count(value: int) -> int:
 
 def build_pairwise_sandbox_job(
     name: str,
+    user_instruction: str,
     pairs: Iterable[Mapping[str, object]],
     *,
     max_responses_per_datapoint: int = 5,
 ) -> dict[str, object]:
     _require_text("name", name)
+    prompt = _require_text("user_instruction", user_instruction)
     count = _response_count(max_responses_per_datapoint)
     datapoints: list[dict[str, object]] = []
     for index, pair in enumerate(pairs):
         if not isinstance(pair, Mapping):
             raise ValueError(f"pair {index} must be a mapping")
-        context = _require_text("context", pair.get("context"))
         a = _media_ref(pair.get("candidate_a"))
         b = _media_ref(pair.get("candidate_b"))
         if a == b:
             raise ValueError("pair candidates must be distinct media references")
         datapoints.append({
-            "context": context,
             "media": {
                 "candidates": [
                     {"url": a, "type": "image"},
@@ -65,7 +66,7 @@ def build_pairwise_sandbox_job(
         raise ValueError("pairs must contain at least one datapoint")
     return {
         "name": name,
-        "instruction": PAIRWISE_INSTRUCTION,
+        "instruction": PAIRWISE_INSTRUCTION_TEMPLATE.format(user_instruction=prompt),
         "task_type": "comparison",
         "max_responses_per_datapoint": count,
         "serving_environment": "sandbox",
