@@ -48,11 +48,23 @@ class ControllerConfig:
     controller_id: str
     provider: str
     model: str
+    reasoning_effort: str | None = None
+    max_output_tokens: int | None = None
+    system_prompt_sha256: str | None = None
+    sdk_version: str | None = None
 
     def __post_init__(self) -> None:
         _require_text("controller_id", self.controller_id)
         _require_text("provider", self.provider)
         _require_text("model", self.model)
+        if self.reasoning_effort is not None:
+            _require_text("reasoning_effort", self.reasoning_effort)
+        if self.max_output_tokens is not None and self.max_output_tokens < 1:
+            raise ValueError("max_output_tokens must be >= 1")
+        if self.system_prompt_sha256 is not None and not _SHA256_RE.fullmatch(self.system_prompt_sha256):
+            raise ValueError("system_prompt_sha256 must be a 64-character lowercase hexadecimal digest")
+        if self.sdk_version is not None:
+            _require_text("sdk_version", self.sdk_version)
 
 
 @dataclass(frozen=True)
@@ -109,6 +121,10 @@ class ToolCallRecord:
     cost_usd: float | None
     error: str | None
     moderation_status: str | None
+    provider: str | None = None
+    model: str | None = None
+    retry_count: int = 0
+    usage: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.call_index < 1:
@@ -117,6 +133,12 @@ class ToolCallRecord:
             raise ValueError("latency_seconds must be >= 0")
         if self.cost_usd is not None and self.cost_usd < 0:
             raise ValueError("cost_usd must be >= 0")
+        if self.provider is not None:
+            _require_text("provider", self.provider)
+        if self.model is not None:
+            _require_text("model", self.model)
+        if self.retry_count < 0:
+            raise ValueError("retry_count must be >= 0")
 
 
 @dataclass(frozen=True)
@@ -203,6 +225,7 @@ class RunManifest:
     controller_ids: tuple[str, ...]
     environment_ids: tuple[str, ...]
     data_classification: str
+    task_corpus_sha256: str | None = None
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -221,3 +244,5 @@ class RunManifest:
             raise ValueError("completed_trajectories cannot exceed requested_trajectories")
         if self.media_call_budget < 1:
             raise ValueError("media_call_budget must be >= 1")
+        if self.task_corpus_sha256 is not None and not _SHA256_RE.fullmatch(self.task_corpus_sha256):
+            raise ValueError("task_corpus_sha256 must be a 64-character lowercase hexadecimal digest")

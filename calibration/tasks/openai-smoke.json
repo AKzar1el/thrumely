@@ -1,0 +1,30 @@
+{
+  "calibration_only": true,
+  "tasks": [
+    {
+      "task_id": "cal-openai-001",
+      "family": "compositional-constraints",
+      "instruction": "Create a clean studio illustration on a white background containing exactly three objects: a blue square on the left, a red circle in the center, and a yellow triangle on the right. The circle must be slightly larger than the other two shapes, and none of the shapes may overlap."
+    },
+    {
+      "task_id": "cal-openai-002",
+      "family": "typography-layout",
+      "instruction": "Design a minimal vertical event poster. The exact headline must read 'NIGHT GARDEN'. Put the headline in the upper third, a small illustrated crescent moon centered below it, and the exact text 'FRIDAY 9 PM' on one line at the bottom. Use a dark botanical visual theme with strong legibility."
+    },
+    {
+      "task_id": "cal-openai-003",
+      "family": "styled-visual-brief",
+      "instruction": "Create a fictional vintage travel poster for a place called 'Solmere Botanical Coast'. Show terraced glasshouses above a calm turquoise bay, with warm late-afternoon light and simplified screen-printed shapes. Include the destination name once, clearly legible, and do not include any real-world logos or landmarks."
+    },
+    {
+      "task_id": "cal-openai-004",
+      "family": "product-editorial-scene",
+      "instruction": "Create a premium editorial product photograph of an unbranded matte stainless-steel reusable water bottle standing upright on a pale stone pedestal. Add one folded linen cloth and a small sprig of rosemary beside it. Use soft side lighting, a neutral beige background, and no visible text or logos."
+    },
+    {
+      "task_id": "cal-openai-005",
+      "family": "revision-sensitive-multi-constraint",
+      "instruction": "Create a cozy illustrated menu-board scene for a fictional cafe called 'Juniper Cup'. The board must show exactly three drink names: 'Espresso', 'Cocoa', and 'Mint Tea'. Place a small cup icon beside Espresso, a cocoa bean icon beside Cocoa, and a mint leaf icon beside Mint Tea. Keep all three names readable, use no prices, and show a warm cafe counter in the background without any other text."
+    }
+  ]
+}
