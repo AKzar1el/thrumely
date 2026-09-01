@@ -12,6 +12,13 @@ from .schema import MediaOperation, NormalizedMediaRequest
 
 _MODEL = "flux-2-pro"
 _BASE_URL = "https://api.bfl.ai/v1"
+_TERMINAL_FAILURE_STATUSES = {
+    "Error",
+    "Failed",
+    "Request Moderated",
+    "Content Moderated",
+    "Task not found",
+}
 _DIMENSIONS = {
     "draft": {
         "1:1": (704, 704),
@@ -104,16 +111,16 @@ def _redact_final_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 
 class _UrllibTransport:
-    def post_json(self, url: str, headers: Mapping[str, str], json: Mapping[str, Any]) -> Mapping[str, Any]:
-        body = __import__("json").dumps(json).encode("utf-8")
+    def post_json(self, url: str, headers: Mapping[str, str], json_payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        body = json.dumps(json_payload).encode("utf-8")
         request = Request(url, data=body, headers=dict(headers), method="POST")
         with urlopen(request, timeout=120) as response:
-            return __import__("json").loads(response.read().decode("utf-8"))
+            return json.loads(response.read().decode("utf-8"))
 
     def get_json(self, url: str, headers: Mapping[str, str]) -> Mapping[str, Any]:
         request = Request(url, headers=dict(headers), method="GET")
         with urlopen(request, timeout=120) as response:
-            return __import__("json").loads(response.read().decode("utf-8"))
+            return json.loads(response.read().decode("utf-8"))
 
     def get_bytes(self, url: str) -> bytes:
         request = Request(url, method="GET")
@@ -208,7 +215,7 @@ class BFLImageProvider:
             if status == "Ready":
                 final = polled
                 break
-            if status in {"Error", "Failed"}:
+            if status in _TERMINAL_FAILURE_STATUSES:
                 raise BFLProviderExecutionError(f"BFL generation ended with terminal status {status}")
         if final is None:
             raise BFLProviderExecutionError("BFL generation exceeded poll limit")
