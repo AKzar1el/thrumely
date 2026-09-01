@@ -33,7 +33,7 @@ No new serialization standard or dependency is introduced in this slice.
 
 ## Experiment plan contract
 
-`src/thrumely/experiment_plan.py` will define immutable planning records.
+`src/thrumely/experiment_plan.py` defines immutable planning records.
 
 ### `ExperimentCell`
 
@@ -41,14 +41,19 @@ Fields:
 
 - `cell_id`
 - `task_id`
+- `task_spec_sha256`
 - `controller_id`
+- `controller_config_sha256`
 - `environment_id`
+- `environment_config_sha256`
 - `replication`
 - `environment_mode`
 - `available_backends`
 - `media_call_budget`
 
-A cell ID is the full SHA-256 content hash of the scientific identity tuple, prefixed with `cell-`. The hash input excludes runtime timestamps and provider responses.
+A cell ID is the full SHA-256 content hash of the scientific identity tuple, prefixed with `cell-`. The hash input excludes runtime timestamps and provider responses but includes content digests for the task specification, controller configuration, and normalized environment configuration. Consequently, changing an instruction, model/configuration field, or environment semantics under the same human-readable ID cannot masquerade as the same scientific cell.
+
+Environment backend ordering is normalized before hashing because backend membership is a set-like scientific property in this contract.
 
 ### `ExperimentPlan`
 
@@ -58,12 +63,15 @@ Fields:
 - `plan_sha256`
 - `data_classification`
 - `task_ids`
+- `task_spec_sha256s`
 - `controller_ids`
+- `controller_config_sha256s`
 - `environment_ids`
+- `environment_config_sha256s`
 - `replications`
 - `cells`
 
-The plan compiler sorts all identity inputs before expansion, rejects duplicate IDs, and produces the same cells/hash regardless of caller input order.
+The plan compiler sorts all identity inputs before expansion, rejects duplicate IDs, and produces the same cells/hash regardless of caller input order. The configuration-digest tables make the plan hash auditable without silently treating a reused ID as an unchanged configuration.
 
 ### Structural invariants
 
@@ -79,7 +87,7 @@ The v1 planning compiler requires:
 8. at least one task;
 9. all task IDs are unique.
 
-The compiler remains agnostic to exact provider/model/backend names.
+The compiler remains agnostic to which exact provider/model/backend names are supplied. It does not freeze those choices by policy; it merely makes any supplied configuration content-addressed and therefore auditable.
 
 For `T` tasks and `R` replications, cell count is:
 
@@ -89,7 +97,7 @@ The future frozen v1 case therefore validates to `100 * 2 * 4 * 2 = 1600` cells.
 
 ## Annotation manifest contract
 
-`src/thrumely/annotation_manifest.py` will compile successful completed trajectories against an `ExperimentPlan` and task instructions.
+`src/thrumely/annotation_manifest.py` compiles successful completed trajectories against an `ExperimentPlan` and task instructions.
 
 The compiler requires exactly one trajectory for every planned cell, and verifies that each trajectory's `(task_id, controller_id, environment_id, replication)` matches the cell identity.
 
@@ -168,16 +176,16 @@ The bundle hash is computed from the plan hash and full manifest content, exclud
 
 ## Synthetic preflight CLI
 
-`src/thrumely/experiment_synthetic.py` will create only in-memory synthetic IDs and synthetic successful trajectory records.
+`src/thrumely/experiment_synthetic.py` creates only in-memory synthetic IDs and synthetic successful trajectory records.
 
-It will compile:
+It compiles:
 
 - a small deterministic matrix for readable CI output;
 - rating and pairwise manifests;
 - expected counts;
 - plan and manifest hashes.
 
-Output must include:
+Output includes:
 
 - `mode: SYNTHETIC_EXPERIMENT_PLAN_ONLY`;
 - `network_calls: 0`;
@@ -189,9 +197,10 @@ The CLI must not read `candidates/tasks-v0.1.jsonl` and must not label any plan 
 
 ## Test gates
 
-Tests must cover at least:
+Tests cover at least:
 
 - input-order-independent plan/hash;
+- task/controller configuration drift changes plan and affected cell identity;
 - duplicate task/controller/environment rejection;
 - exact two-controller / three-fixed-plus-chooser structure;
 - chooser backend set equals fixed backend set;
