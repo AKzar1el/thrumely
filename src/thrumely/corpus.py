@@ -71,16 +71,22 @@ class CandidateTaskSpec:
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> "CandidateTaskSpec":
+        def sequence(name: str, *, default: tuple[object, ...] | None = None) -> tuple[str, ...]:
+            value = data.get(name, default) if default is not None else data[name]
+            if not isinstance(value, (list, tuple)):
+                raise ValueError(f"{name} must be a JSON array")
+            return tuple(str(item) for item in value)
+
         return cls(
             task_id=str(data["task_id"]),
             family=str(data["family"]),
             instruction=str(data["instruction"]),
             target_aspect_ratio=str(data["target_aspect_ratio"]),
-            atomic_requirements=tuple(str(item) for item in data["atomic_requirements"]),
-            evaluation_questions=tuple(str(item) for item in data["evaluation_questions"]),
+            atomic_requirements=sequence("atomic_requirements"),
+            evaluation_questions=sequence("evaluation_questions"),
             human_rubric_notes=str(data["human_rubric_notes"]),
-            deterministic_checks=tuple(str(item) for item in data["deterministic_checks"]),
-            risk_flags=tuple(str(item) for item in data.get("risk_flags", [])),
+            deterministic_checks=sequence("deterministic_checks"),
+            risk_flags=sequence("risk_flags", default=()),
             corpus_status=str(data.get("corpus_status", "candidate")),
         )
 
