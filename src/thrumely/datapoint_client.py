@@ -51,9 +51,12 @@ class DatapointClient:
     def __init__(self, api_key: str, *, transport: Transport | None = None, base_url: str = BASE_URL):
         if not isinstance(api_key, str) or not api_key.strip():
             raise ValueError("api_key must be a non-empty string")
+        normalized_base = base_url.rstrip("/")
+        if normalized_base != BASE_URL:
+            raise ValueError("base_url must be the official Datapoint API endpoint")
         self._api_key = api_key
         self._transport = transport or _urllib_transport
-        self._base_url = base_url.rstrip("/")
+        self._base_url = normalized_base
 
     def _request_json(self, method: str, path: str, *, payload: Mapping[str, object] | None = None) -> dict[str, object]:
         body = None
