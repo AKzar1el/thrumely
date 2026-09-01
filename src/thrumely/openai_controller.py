@@ -195,7 +195,7 @@ class OpenAIController:
                 store=False,
             )
         except Exception as exc:
-            raise ControllerExecutionError(f"OpenAI controller request failed: {exc}") from exc
+            raise ControllerExecutionError(f"OpenAI controller request failed ({type(exc).__name__})") from exc
 
         function_calls = [item for item in (getattr(response, "output", None) or []) if getattr(item, "type", None) == "function_call"]
         if len(function_calls) != 1:

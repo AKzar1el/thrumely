@@ -73,9 +73,14 @@ def _usage_dict(result: Any) -> Mapping[str, Any]:
     return primitive if isinstance(primitive, dict) else {}
 
 
-def _dimensions(size: str) -> tuple[int, int]:
-    width, height = size.split("x", 1)
-    return int(width), int(height)
+def _png_dimensions(media_bytes: bytes) -> tuple[int, int]:
+    if len(media_bytes) < 24 or media_bytes[:8] != b"\x89PNG\r\n\x1a\n" or media_bytes[12:16] != b"IHDR":
+        raise ProviderExecutionError("OpenAI image response was not a valid PNG artifact")
+    width = int.from_bytes(media_bytes[16:20], "big")
+    height = int.from_bytes(media_bytes[20:24], "big")
+    if width <= 0 or height <= 0:
+        raise ProviderExecutionError("OpenAI image response contained invalid PNG dimensions")
+    return width, height
 
 
 class ProviderExecutionError(RuntimeError):
@@ -141,7 +146,7 @@ class OpenAIImageProvider:
         except ValueError:
             raise
         except Exception as exc:
-            raise ProviderExecutionError(f"OpenAI image request failed: {exc}") from exc
+            raise ProviderExecutionError(f"OpenAI image request failed ({type(exc).__name__})") from exc
         latency = time.perf_counter() - started
 
         data = getattr(result, "data", None) or []
@@ -151,7 +156,7 @@ class OpenAIImageProvider:
             media_bytes = base64.b64decode(data[0].b64_json, validate=True)
         except ValueError as exc:
             raise ProviderExecutionError("OpenAI image response media decode failed") from exc
-        width, height = _dimensions(size)
+        width, height = _png_dimensions(media_bytes)
         request_id = getattr(result, "_request_id", None) or getattr(result, "id", None)
         actual_model = getattr(result, "model", None) or self.model
 

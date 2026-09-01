@@ -153,6 +153,9 @@ def test_fake_live_runner_exports_hashed_redacted_bundle(tmp_path: Path) -> None
     assert manifest["completed_trajectories"] == 1
     assert len(manifest["task_corpus_sha256"]) == 64
     assert (output / "tasks.json").exists()
+    configuration = json.loads((output / "configuration.json").read_text())
+    assert configuration["task_file"] == "tasks.json"
+    assert str(tmp_path) not in json.dumps(configuration)
 
     trajectories = read_jsonl(output / "trajectories.jsonl")
     assert len(trajectories) == 1

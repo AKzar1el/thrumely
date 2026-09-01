@@ -109,6 +109,13 @@ def load_calibration_tasks(path: Path) -> tuple[TaskSpec, ...]:
     return tuple(tasks)
 
 
+def _public_task_path(task_path: Path, repo_root: Path) -> str:
+    try:
+        return task_path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return task_path.name
+
+
 def _controller_message(turn: int, decision: Any) -> dict[str, Any]:
     return {
         "role": "controller",
@@ -293,7 +300,7 @@ def run_calibration(
             "logical_backend_id": backend_id,
             "model": provider.model,
         },
-        "task_file": task_path.as_posix(),
+        "task_file": _public_task_path(task_path, repo_root),
         "task_corpus_sha256": sha256_file(task_path),
     }
 

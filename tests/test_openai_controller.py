@@ -196,5 +196,19 @@ def test_controller_wraps_sdk_failure_as_typed_execution_error() -> None:
             raise RuntimeError("rate limited")
 
     controller = OpenAIController(config(), client=SimpleNamespace(responses=FailingResponses()))
-    with pytest.raises(ControllerExecutionError, match="rate limited"):
+    with pytest.raises(ControllerExecutionError, match="RuntimeError"):
         controller.decide(task(), environment(), call_index=1)
+
+
+def test_controller_error_does_not_echo_sdk_exception_secrets() -> None:
+    from thrumely.openai_controller import ControllerExecutionError
+
+    class SecretFailingResponses:
+        def create(self, **kwargs):
+            raise RuntimeError("Authorization: Bearer sk-controller-secret")
+
+    controller = OpenAIController(config(), client=SimpleNamespace(responses=SecretFailingResponses()))
+    with pytest.raises(ControllerExecutionError) as captured:
+        controller.decide(task(), environment(), call_index=1)
+    assert "sk-controller-secret" not in str(captured.value)
+    assert "RuntimeError" in str(captured.value)

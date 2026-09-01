@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import base64
+import struct
 from types import SimpleNamespace
 
 import pytest
 
 from thrumely.openai_provider import OpenAIImageProvider, aspect_ratio_to_size, quality_tier_to_openai
 from thrumely.schema import MediaOperation, NormalizedMediaRequest, ToolEnvironment
+
+
+def png_bytes(width: int = 321, height: int = 654) -> bytes:
+    return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", width, height) + b"\x08\x06\x00\x00\x00"
 
 
 class FakeImages:
@@ -17,7 +22,7 @@ class FakeImages:
     def generate(self, **kwargs):
         self.generate_kwargs = kwargs
         return SimpleNamespace(
-            data=[SimpleNamespace(b64_json=base64.b64encode(b"fake-png").decode("ascii"))],
+            data=[SimpleNamespace(b64_json=base64.b64encode(png_bytes()).decode("ascii"))],
             usage=SimpleNamespace(input_tokens=5, output_tokens=196, total_tokens=201),
             _request_id="req_generate",
             model="gpt-image-2-2026-04-21",
@@ -26,7 +31,7 @@ class FakeImages:
     def edit(self, **kwargs):
         self.edit_kwargs = kwargs
         return SimpleNamespace(
-            data=[SimpleNamespace(b64_json=base64.b64encode(b"edited-png").decode("ascii"))],
+            data=[SimpleNamespace(b64_json=base64.b64encode(png_bytes(777, 888)).decode("ascii"))],
             usage=SimpleNamespace(input_tokens=15, output_tokens=196, total_tokens=211),
             _request_id="req_edit",
             model="gpt-image-2-2026-04-21",
@@ -80,10 +85,10 @@ def test_generation_maps_normalized_request_and_decodes_media() -> None:
         "quality": "medium",
         "output_format": "png",
     }
-    assert result.media_bytes == b"fake-png"
+    assert result.media_bytes == png_bytes()
     assert result.mime_type == "image/png"
-    assert result.width == 1024
-    assert result.height == 1024
+    assert result.width == 321
+    assert result.height == 654
     assert result.provider == "openai"
     assert result.model == "gpt-image-2-2026-04-21"
     assert result.request_id == "req_generate"
@@ -115,7 +120,9 @@ def test_edit_uses_previous_media_and_same_normalized_controls() -> None:
     assert kwargs["quality"] == "medium"
     assert kwargs["output_format"] == "png"
     assert kwargs["image"].read() == b"prior-png"
-    assert result.media_bytes == b"edited-png"
+    assert result.media_bytes == png_bytes(777, 888)
+    assert result.width == 777
+    assert result.height == 888
     assert result.request_id == "req_edit"
 
 
@@ -128,7 +135,7 @@ def test_provider_wraps_sdk_failure_as_typed_execution_error() -> None:
 
     failing_client = SimpleNamespace(images=FailingImages())
     provider = OpenAIImageProvider(client=failing_client)
-    with pytest.raises(ProviderExecutionError, match="network down"):
+    with pytest.raises(ProviderExecutionError, match="RuntimeError"):
         provider.execute(request())
 
 
@@ -164,3 +171,17 @@ def test_provider_wraps_invalid_base64_payload_as_execution_error() -> None:
     provider = OpenAIImageProvider(client=SimpleNamespace(images=InvalidMediaImages()))
     with pytest.raises(ProviderExecutionError, match="decode"):
         provider.execute(request())
+
+
+def test_provider_error_does_not_echo_sdk_exception_secrets() -> None:
+    from thrumely.openai_provider import ProviderExecutionError
+
+    class SecretFailingImages:
+        def generate(self, **kwargs):
+            raise RuntimeError("Authorization: Bearer sk-super-secret")
+
+    provider = OpenAIImageProvider(client=SimpleNamespace(images=SecretFailingImages()))
+    with pytest.raises(ProviderExecutionError) as captured:
+        provider.execute(request())
+    assert "sk-super-secret" not in str(captured.value)
+    assert "RuntimeError" in str(captured.value)
