@@ -55,8 +55,8 @@ def required_text_score(required: tuple[str, ...], observed_ocr_text: str) -> fl
         return None
     if not all(isinstance(item, str) and item.strip() for item in required):
         raise ValueError("required strings must be non-empty")
-    observed = normalize_ocr_text(observed_ocr_text)
-    matches = sum(normalize_ocr_text(item) in observed for item in required)
+    observed = f" {normalize_ocr_text(observed_ocr_text)} "
+    matches = sum(f" {normalize_ocr_text(item)} " in observed for item in required)
     return matches / len(required)
 
 
