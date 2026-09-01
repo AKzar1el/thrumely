@@ -84,3 +84,25 @@ def test_upload_rejects_header_unsafe_filename(tmp_path: Path):
 def test_client_rejects_non_datapoint_base_url():
     with pytest.raises(ValueError, match="base_url"):
         DatapointClient("dp_live_secret", base_url="https://example.com/steal")
+
+
+def test_get_all_results_follows_result_pagination():
+    transport = FakeTransport([
+        (200, {"job_id": "job_1", "task_type": "rating", "page": 1, "per_page": 1, "total_results": 2, "results": [{"datapoint_index": 0}]}),
+        (200, {"job_id": "job_1", "task_type": "rating", "page": 2, "per_page": 1, "total_results": 2, "results": [{"datapoint_index": 1}]}),
+    ])
+    client = DatapointClient("dp_live_secret", transport=transport)
+    merged = client.get_all_results("job_1", per_page=1)
+    assert [row["datapoint_index"] for row in merged["results"]] == [0, 1]
+    assert [call[1].split("?", 1)[1] for call in transport.calls] == ["page=1&per_page=1", "page=2&per_page=1"]
+
+
+def test_get_all_responses_follows_total_pages():
+    transport = FakeTransport([
+        (200, {"job_id": "job_1", "task_type": "comparison", "page": 1, "per_page": 1, "total_pages": 2, "responses": [{"response": "A"}]}),
+        (200, {"job_id": "job_1", "task_type": "comparison", "page": 2, "per_page": 1, "total_pages": 2, "responses": [{"response": "B"}]}),
+    ])
+    client = DatapointClient("dp_live_secret", transport=transport)
+    merged = client.get_all_responses("job_1", per_page=1)
+    assert [row["response"] for row in merged["responses"]] == ["A", "B"]
+    assert [call[1].split("?", 1)[1] for call in transport.calls] == ["page=1&per_page=1", "page=2&per_page=1"]
