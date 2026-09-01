@@ -66,3 +66,10 @@ def test_canonical_hash_is_order_sensitive_but_mapping_stable(tmp_path: Path):
     path.write_text("\n".join(json.dumps(task.to_dict(), sort_keys=True) for task in (first, second)) + "\n", encoding="utf-8")
     loaded = load_candidate_jsonl(path)
     assert loaded == (first, second)
+
+
+def test_from_dict_rejects_scalar_sequence_fields():
+    payload = make_task().to_dict()
+    payload["atomic_requirements"] = "redmug"
+    with pytest.raises(ValueError, match="atomic_requirements"):
+        CandidateTaskSpec.from_dict(payload)
