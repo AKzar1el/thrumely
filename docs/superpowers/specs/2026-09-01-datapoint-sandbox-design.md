@@ -16,7 +16,7 @@ Build a zero-credit Datapoint integration path that can validate Thrumely's huma
 - Comparison candidate display order is randomized for annotators while A/B continues to map to submission order.
 - Datapoint explicitly documents `{context}` substitution for rating. Its comparison contract guarantees the job-level `instruction` is shown, but does not document per-datapoint context substitution for comparison.
 - Media can be uploaded and referenced using durable `dp://` URIs.
-- Raw responses are available separately from aggregate results.
+- Aggregate `/results` and raw `/responses` are paginated. Raw responses cap `per_page` at 1000 and must be iterated using the returned `total_pages`, because pages are grouped by annotator and can contain more rows than `per_page`.
 
 References:
 - https://trydatapoint.com/docs/api/jobs/
@@ -71,17 +71,20 @@ Capabilities:
 - upload image media with multipart `POST /media`;
 - create a sandbox job with `POST /jobs`;
 - fetch job status;
-- fetch aggregate results;
-- fetch raw responses.
+- fetch individual result/response pages;
+- fetch **all** aggregate result pages without first-page truncation;
+- fetch **all** raw-response pages by following Datapoint's returned `total_pages` value.
 
 Hard safety constraints:
 
 - reject any job payload whose `serving_environment` is not exactly `sandbox`;
+- pin requests to the official Datapoint API base URL;
 - never log or export `X-API-Key`;
 - remove the raw API key even if an upstream error body echoes it under an unrelated field;
 - reject unsafe job IDs before constructing request paths;
 - reject multipart filenames containing header-unsafe characters;
 - sanitize external error payloads before exposing them publicly;
+- fail loudly on malformed or non-progressing pagination rather than returning partial data;
 - treat unknown response fields as forward-compatible extras;
 - preserve Datapoint job IDs, pricing fields, serving environment, and response counts when returned.
 
@@ -112,7 +115,7 @@ Raw annotator exports retain only fields needed for audit/statistics. Direct ide
 
 ### 4. Offline sandbox fixture
 
-`src/thrumely/datapoint_sandbox.py` provides a credential-free round-trip smoke using a fake transport and synthetic `dp://` media references. It generates both one comparison job and one rating job, then parses fake status/results/raw-response envelopes.
+`src/thrumely/datapoint_sandbox.py` provides a credential-free round-trip smoke using a fake transport and synthetic `dp://` media references. It generates both one comparison job and one rating job, then parses fake status/results/raw-response envelopes through the same fetch-all pagination paths intended for the pilot.
 
 This is not a real Datapoint sandbox run. Its purpose is to prove the Thrumely-owned client/protocol/result contracts before a `DATAPOINT_KEY` is available.
 
@@ -132,10 +135,12 @@ TDD coverage includes:
 - client rejects manually crafted `prod` / `all` jobs before transport invocation;
 - API key is present in request headers but absent from exceptions and public payloads;
 - HTTP error payloads cannot echo the API key into exceptions;
-- unsafe job IDs and multipart filenames are rejected before transport;
+- unsafe job IDs, non-Datapoint API bases, and multipart filenames are rejected before transport;
+- fetch-all result pagination continues until `total_results` is satisfied;
+- fetch-all raw-response pagination follows returned `total_pages` rather than deriving page count from response totals;
 - aggregate comparison/rating parsing works with documented fields plus unknown extras;
 - raw-response public normalization strips city/region and keeps anonymized annotator ID/country/response timing;
-- offline fake round trip exercises create/status/results/responses for both task types;
+- offline fake round trip exercises create/status/fetch-all-results/fetch-all-responses for both task types;
 - existing provider/corpus/offline tests remain green.
 
 ## CI gate
