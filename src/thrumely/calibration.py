@@ -431,11 +431,12 @@ def _run_direct_openai(args: argparse.Namespace, sdk_version: str) -> Path:
     )
 
 
-def _run_vercel_gateway(args: argparse.Namespace, sdk_version: str, api_key: str) -> Path:
+def _run_vercel_gateway(args: argparse.Namespace, api_key: str) -> Path:
     credits_before = fetch_vercel_gateway_credits(api_key)
     if _credit_amount(credits_before, "balance") <= 0:
         raise SystemExit("positive AI Gateway credit balance is required for live Vercel calibration")
 
+    sdk_version = _openai_sdk_version()
     try:
         from openai import OpenAI
     except ImportError as exc:
@@ -547,7 +548,7 @@ def main() -> None:
         gateway_key = os.environ.get("AI_GATEWAY_API_KEY")
         if not gateway_key:
             raise SystemExit("AI_GATEWAY_API_KEY is required for live Vercel calibration")
-        result = _run_vercel_gateway(args, _openai_sdk_version(), gateway_key)
+        result = _run_vercel_gateway(args, gateway_key)
 
     print(result)
 
