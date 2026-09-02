@@ -78,6 +78,7 @@ def test_inference_contract_supports_generate_and_exact_reference_edit() -> None
     assert 'operation not in {"generate", "edit_previous"}' in text
     assert 'payload.get("previous_image_base64")' in text
     assert 'operation == "edit_previous"' in text
+    assert 'image.format not in {"PNG", "JPEG"}' in text
     assert "image=previous_image" in text
     assert "height=height" in text
     assert "width=width" in text
