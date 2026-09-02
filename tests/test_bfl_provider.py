@@ -86,6 +86,25 @@ def test_submit_poll_download_flow_uses_fixed_flux2_pro_endpoint() -> None:
     assert result.raw_response["final"]["result"]["sample"] == "[EPHEMERAL_DELIVERY_URL]"
 
 
+@pytest.mark.parametrize("operation", [MediaOperation.GENERATE, MediaOperation.EDIT_PREVIOUS])
+def test_requests_disable_prompt_upsampling_and_preserve_controller_prompt(operation: MediaOperation) -> None:
+    request = make_request(operation)
+    previous = png_bytes(20, 20) if operation is MediaOperation.EDIT_PREVIOUS else None
+    transport = FakeTransport([
+        {"status": "Ready", "result": {"sample": "https://delivery.eu.bfl.ai/result.png"}},
+    ])
+
+    result = BFLImageProvider(transport=transport, api_key="test-key", poll_interval=0).execute(
+        request, previous_media=previous
+    )
+
+    payload = transport.post_calls[0][2]
+    assert payload["prompt"] == request.prompt
+    assert payload["disable_pup"] is True
+    assert result.raw_request["prompt"] == request.prompt
+    assert result.raw_request["disable_pup"] is True
+
+
 def test_edit_sends_base64_input_image_without_secret_persistence() -> None:
     previous = png_bytes(20, 20)
     transport = FakeTransport([

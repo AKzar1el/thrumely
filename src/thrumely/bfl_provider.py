@@ -167,6 +167,7 @@ class BFLImageProvider:
         width, height = quality_tier_to_dimensions(request.aspect_ratio, request.quality_tier)
         payload: dict[str, Any] = {
             "prompt": request.prompt,
+            "disable_pup": True,
             "width": width,
             "height": height,
             "output_format": "png",
@@ -184,6 +185,7 @@ class BFLImageProvider:
             "model": self.model,
             "endpoint": endpoint,
             "prompt": request.prompt,
+            "disable_pup": True,
             "width": width,
             "height": height,
             "output_format": "png",
