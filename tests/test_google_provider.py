@@ -18,6 +18,17 @@ def png_bytes(width: int = 32, height: int = 24) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + width.to_bytes(4, "big") + height.to_bytes(4, "big") + b"\x08\x06\x00\x00\x00"
 
 
+def jpeg_bytes(width: int = 32, height: int = 24) -> bytes:
+    return (
+        b"\xff\xd8"
+        + b"\xff\xc0\x00\x11\x08"
+        + height.to_bytes(2, "big")
+        + width.to_bytes(2, "big")
+        + b"\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00"
+        + b"\xff\xd9"
+    )
+
+
 class FakeInteractions:
     def __init__(self, response):
         self.response = response
@@ -57,7 +68,7 @@ def fake_response(media: bytes | None = None, mime_type: str = "image/png"):
 
 
 def test_quality_tier_mapping() -> None:
-    assert quality_tier_to_resolution("draft") == "0.5K"
+    assert quality_tier_to_resolution("draft") == "512"
     assert quality_tier_to_resolution("standard") == "1K"
     assert quality_tier_to_resolution("high") == "2K"
     with pytest.raises(ValueError):
@@ -73,7 +84,6 @@ def test_generation_uses_neutral_image_response_format_without_tools() -> None:
     assert call["input"] == "Create a simple blue square"
     assert call["response_format"] == {
         "type": "image",
-        "mime_type": "image/png",
         "aspect_ratio": "16:9",
         "image_size": "1K",
     }
@@ -93,6 +103,25 @@ def test_edit_includes_previous_image_but_no_grounding_tools() -> None:
     assert call["input"][1]["type"] == "image"
     assert call["input"][1]["mime_type"] == "image/png"
     assert base64.b64decode(call["input"][1]["data"]) == previous
+
+
+def test_edit_preserves_jpeg_bytes_and_labels_actual_mime_type() -> None:
+    client = FakeClient(fake_response(png_bytes()))
+    previous = jpeg_bytes(20, 20)
+    GoogleImageProvider(client=client).execute(make_request(MediaOperation.EDIT_PREVIOUS), previous_media=previous)
+
+    image_input = client.interactions.calls[0]["input"][1]
+    assert image_input["mime_type"] == "image/jpeg"
+    assert base64.b64decode(image_input["data"]) == previous
+
+
+def test_edit_rejects_unknown_previous_media_before_call() -> None:
+    client = FakeClient(fake_response(png_bytes()))
+    with pytest.raises(ValueError, match="PNG or JPEG"):
+        GoogleImageProvider(client=client).execute(
+            make_request(MediaOperation.EDIT_PREVIOUS), previous_media=b"not-an-image"
+        )
+    assert client.interactions.calls == []
 
 
 def test_edit_requires_previous_media() -> None:
