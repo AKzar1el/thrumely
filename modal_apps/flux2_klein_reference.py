@@ -18,6 +18,7 @@ DIFFUSERS_VERSION = "0.40.0"
 TRANSFORMERS_VERSION = "5.16.1"
 ACCELERATE_VERSION = "1.14.0"
 HUGGINGFACE_HUB_VERSION = "1.29.0"
+SAFETENSORS_VERSION = "0.8.0"
 INFERENCE_STEPS = 4
 GUIDANCE_SCALE = 1.0
 _MAX_DIMENSION = 1792
@@ -52,7 +53,7 @@ inference_image = modal.Image.debian_slim(python_version="3.11").pip_install(
     f"transformers=={TRANSFORMERS_VERSION}",
     f"accelerate=={ACCELERATE_VERSION}",
     f"huggingface_hub=={HUGGINGFACE_HUB_VERSION}",
-    "safetensors>=0.6,<0.7",
+    f"safetensors=={SAFETENSORS_VERSION}",
     "Pillow>=11,<13",
 )
 

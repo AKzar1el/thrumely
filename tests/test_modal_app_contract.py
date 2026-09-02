@@ -43,8 +43,15 @@ def test_deployment_pins_model_and_inference_dependency_versions() -> None:
     assert values["TRANSFORMERS_VERSION"] == "5.16.1"
     assert values["ACCELERATE_VERSION"] == "1.14.0"
     assert values["HUGGINGFACE_HUB_VERSION"] == "1.29.0"
+    assert values["SAFETENSORS_VERSION"] == "0.8.0"
     assert values["INFERENCE_STEPS"] == 4
     assert values["GUIDANCE_SCALE"] == 1.0
+
+
+def test_inference_image_uses_compatible_pinned_safetensors() -> None:
+    text = source()
+    assert 'f"safetensors=={SAFETENSORS_VERSION}"' in text
+    assert '"safetensors>=0.6,<0.7"' not in text
 
 
 def test_deployment_uses_bounded_zero_idle_l4_class_and_persistent_volume() -> None:
