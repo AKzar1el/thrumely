@@ -9,7 +9,7 @@ from .schema import MediaOperation, NormalizedMediaRequest
 
 _MODEL = "gemini-3.1-flash-image"
 _QUALITY_TO_RESOLUTION = {
-    "draft": "0.5K",
+    "draft": "512",
     "standard": "1K",
     "high": "2K",
 }
@@ -101,6 +101,14 @@ def _jpeg_dimensions(media_bytes: bytes) -> tuple[int, int] | None:
     return None
 
 
+def _input_image_mime_type(media_bytes: bytes) -> str:
+    if _png_dimensions(media_bytes) is not None:
+        return "image/png"
+    if _jpeg_dimensions(media_bytes) is not None:
+        return "image/jpeg"
+    raise ValueError("previous_media must contain valid PNG or JPEG image data")
+
+
 def _media_dimensions(media_bytes: bytes, mime_type: str) -> tuple[int, int]:
     dimensions = _png_dimensions(media_bytes)
     if dimensions is None and mime_type in {"image/jpeg", "image/jpg"}:
@@ -142,7 +150,6 @@ class GoogleImageProvider:
 
         response_format = {
             "type": "image",
-            "mime_type": "image/png",
             "aspect_ratio": request.aspect_ratio,
             "image_size": image_size,
         }
@@ -151,12 +158,13 @@ class GoogleImageProvider:
         else:
             if previous_media is None:
                 raise ValueError("edit_previous requires previous_media bytes")
+            previous_mime_type = _input_image_mime_type(previous_media)
             interaction_input = [
                 {"type": "text", "text": request.prompt},
                 {
                     "type": "image",
                     "data": base64.b64encode(previous_media).decode("ascii"),
-                    "mime_type": "image/png",
+                    "mime_type": previous_mime_type,
                 },
             ]
 
