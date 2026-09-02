@@ -6,12 +6,15 @@ import os
 import platform
 import shutil
 import subprocess
+import urllib.error
+import urllib.request
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from . import __version__
 from .artifacts import ArtifactStore
@@ -37,6 +40,14 @@ from .schema import (
     TrajectoryRecord,
 )
 from .serialization import to_primitive
+from .vercel_gateway import (
+    VERCEL_CONTROLLER_MODEL,
+    VERCEL_GATEWAY_BASE_URL,
+    VERCEL_GATEWAY_TIMEOUT_SECONDS,
+    VERCEL_IMAGE_MODEL,
+    VERCEL_IMAGE_RELEASE_DATE,
+    openai_only_extra_body,
+)
 
 
 def _repo_root() -> Path:
@@ -73,6 +84,64 @@ def _write_jsonl(path: Path, values: Iterable[Any]) -> None:
         for value in values:
             payload = sanitize_public_payload(to_primitive(value))
             handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def fetch_vercel_gateway_credits(
+    api_key: str,
+    *,
+    opener: Any | None = None,
+) -> dict[str, str]:
+    if not isinstance(api_key, str) or not api_key.strip():
+        raise ValueError("AI Gateway API key must be a non-empty string")
+    request = urllib.request.Request(
+        f"{VERCEL_GATEWAY_BASE_URL}/credits",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    open_request = opener or urllib.request.urlopen
+    try:
+        with open_request(request, timeout=VERCEL_GATEWAY_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Vercel AI Gateway credit check failed ({type(exc).__name__})") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("Vercel AI Gateway credit check returned an invalid payload")
+
+    credits: dict[str, str] = {}
+    for field in ("balance", "total_used"):
+        if field not in payload:
+            raise RuntimeError("Vercel AI Gateway credit check returned an incomplete payload")
+        value = str(payload[field])
+        try:
+            amount = Decimal(value)
+        except InvalidOperation as exc:
+            raise RuntimeError("Vercel AI Gateway credit check returned an invalid amount") from exc
+        if not amount.is_finite() or amount < 0:
+            raise RuntimeError("Vercel AI Gateway credit check returned an invalid amount")
+        credits[field] = value
+    return credits
+
+
+def _credit_amount(credits: Mapping[str, str], field: str) -> Decimal:
+    try:
+        amount = Decimal(credits[field])
+    except (KeyError, InvalidOperation) as exc:
+        raise RuntimeError("Vercel AI Gateway credit provenance is invalid") from exc
+    if not amount.is_finite() or amount < 0:
+        raise RuntimeError("Vercel AI Gateway credit provenance is invalid")
+    return amount
+
+
+def _update_transport_metadata(run_dir: Path, transport: Mapping[str, Any]) -> None:
+    path = run_dir / "configuration.json"
+    configuration = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(configuration, dict):
+        raise RuntimeError("calibration configuration is invalid")
+    configuration["transport"] = dict(transport)
+    _write_json(path, configuration)
 
 
 def load_calibration_tasks(path: Path) -> tuple[TaskSpec, ...]:
@@ -124,7 +193,7 @@ def _public_task_path(task_path: Path, repo_root: Path) -> str:
 
 
 def _controller_message(turn: int, decision: Any) -> dict[str, Any]:
-    return {
+    message = {
         "role": "controller",
         "turn": turn,
         "response_id": decision.response_id,
@@ -133,6 +202,10 @@ def _controller_message(turn: int, decision: Any) -> dict[str, Any]:
         "observable_output": list(decision.observable_output),
         "action": decision.action,
     }
+    provider_metadata = getattr(decision, "provider_metadata", None)
+    if provider_metadata:
+        message["provider_metadata"] = dict(provider_metadata)
+    return message
 
 
 def _tool_record(call_index: int, request: Any, result: Any, artifact: MediaArtifact) -> ToolCallRecord:
@@ -163,6 +236,7 @@ def run_calibration(
     task_id: str | None = None,
     replication: int = 1,
     run_id: str | None = None,
+    transport_metadata: Mapping[str, Any] | None = None,
 ) -> Path:
     if replication < 1:
         raise ValueError("replication must be >= 1")
@@ -313,6 +387,8 @@ def run_calibration(
         "task_file": _public_task_path(task_path, repo_root),
         "task_corpus_sha256": sha256_file(task_path),
     }
+    if transport_metadata is not None:
+        configuration["transport"] = dict(transport_metadata)
 
     _write_json(run_dir / "manifest.json", manifest)
     _write_json(run_dir / "configuration.json", configuration)
@@ -328,6 +404,101 @@ def _openai_sdk_version() -> str:
         raise RuntimeError("OpenAI live calibration requires `pip install -e '.[openai]'`") from exc
 
 
+def _run_direct_openai(args: argparse.Namespace, sdk_version: str) -> Path:
+    config = ControllerConfig(
+        controller_id="openai-sol-calibration",
+        provider="openai",
+        model="gpt-5.6-sol",
+        reasoning_effort="medium",
+        max_output_tokens=1024,
+        system_prompt_sha256=system_prompt_sha256(),
+        sdk_version=sdk_version,
+    )
+    controller = OpenAIController(config)
+    provider = OpenAIImageProvider()
+    return run_calibration(
+        args.output,
+        args.tasks,
+        controller,
+        provider,
+        task_id=args.task_id,
+        replication=args.replication,
+        transport_metadata={
+            "kind": "openai-direct",
+            "controller_model": "gpt-5.6-sol",
+            "image_model": "gpt-image-2-2026-04-21",
+        },
+    )
+
+
+def _run_vercel_gateway(args: argparse.Namespace, sdk_version: str, api_key: str) -> Path:
+    credits_before = fetch_vercel_gateway_credits(api_key)
+    if _credit_amount(credits_before, "balance") <= 0:
+        raise SystemExit("positive AI Gateway credit balance is required for live Vercel calibration")
+
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise RuntimeError("Vercel Gateway calibration requires `pip install -e '.[openai]'`") from exc
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url=VERCEL_GATEWAY_BASE_URL,
+        max_retries=0,
+    )
+    request_extra_body = openai_only_extra_body()
+    config = ControllerConfig(
+        controller_id="openai-sol-vercel-calibration",
+        provider="openai",
+        model=VERCEL_CONTROLLER_MODEL,
+        reasoning_effort="medium",
+        max_output_tokens=1024,
+        system_prompt_sha256=system_prompt_sha256(),
+        sdk_version=sdk_version,
+    )
+    controller = OpenAIController(
+        config,
+        client=client,
+        request_extra_body=request_extra_body,
+        required_gateway_provider="openai",
+    )
+    provider = OpenAIImageProvider(
+        model=VERCEL_IMAGE_MODEL,
+        client=client,
+        request_extra_body=request_extra_body,
+        required_gateway_provider="openai",
+    )
+    transport: dict[str, Any] = {
+        "kind": "vercel-ai-gateway",
+        "base_url": VERCEL_GATEWAY_BASE_URL,
+        "upstream_provider_required": "openai",
+        "controller_gateway_model": VERCEL_CONTROLLER_MODEL,
+        "image_gateway_model": VERCEL_IMAGE_MODEL,
+        "image_gateway_release_date": VERCEL_IMAGE_RELEASE_DATE,
+        "exact_snapshot_equivalence_established": False,
+        "provider_fallback_allowed": False,
+        "model_fallback_allowed": False,
+        "credits_before": credits_before,
+    }
+    result = run_calibration(
+        args.output,
+        args.tasks,
+        controller,
+        provider,
+        task_id=args.task_id,
+        replication=args.replication,
+        transport_metadata=transport,
+    )
+
+    credits_after = fetch_vercel_gateway_credits(api_key)
+    transport["credits_after"] = credits_after
+    transport["observed_credit_delta_usd"] = str(
+        _credit_amount(credits_before, "balance") - _credit_amount(credits_after, "balance")
+    )
+    _update_transport_metadata(result, transport)
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run Thrumely's calibration-only OpenAI live pipeline")
     parser.add_argument("--tasks", type=Path, required=True)
@@ -335,9 +506,15 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("results/calibration"))
     parser.add_argument("--replication", type=int, default=1)
     parser.add_argument(
+        "--transport",
+        choices=("openai-direct", "vercel-gateway"),
+        default="openai-direct",
+        help="Calibration transport. Direct OpenAI remains the default.",
+    )
+    parser.add_argument(
         "--execute-live",
         action="store_true",
-        help="Authorize live OpenAI API calls; omitted means zero-cost dry-run only",
+        help="Authorize the selected calibration transport to make live API calls; omitted means zero-cost dry-run only",
     )
     args = parser.parse_args()
 
@@ -353,6 +530,7 @@ def main() -> None:
                 {
                     "status": "DRY_RUN_ONLY",
                     "task_id": args.task_id,
+                    "transport": args.transport,
                     "maximum_media_calls": 2,
                     "live_execution_authorized": False,
                 },
@@ -361,29 +539,16 @@ def main() -> None:
         )
         return
 
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise SystemExit("OPENAI_API_KEY is required for live calibration")
+    if args.transport == "openai-direct":
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise SystemExit("OPENAI_API_KEY is required for live calibration")
+        result = _run_direct_openai(args, _openai_sdk_version())
+    else:
+        gateway_key = os.environ.get("AI_GATEWAY_API_KEY")
+        if not gateway_key:
+            raise SystemExit("AI_GATEWAY_API_KEY is required for live Vercel calibration")
+        result = _run_vercel_gateway(args, _openai_sdk_version(), gateway_key)
 
-    sdk_version = _openai_sdk_version()
-    config = ControllerConfig(
-        controller_id="openai-sol-calibration",
-        provider="openai",
-        model="gpt-5.6-sol",
-        reasoning_effort="medium",
-        max_output_tokens=1024,
-        system_prompt_sha256=system_prompt_sha256(),
-        sdk_version=sdk_version,
-    )
-    controller = OpenAIController(config)
-    provider = OpenAIImageProvider()
-    result = run_calibration(
-        args.output,
-        args.tasks,
-        controller,
-        provider,
-        task_id=args.task_id,
-        replication=args.replication,
-    )
     print(result)
 
 
