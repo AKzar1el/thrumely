@@ -1,0 +1,59 @@
+name: Vercel Gate 1 Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: "Type RUN_CAL_OPENAI_001 to authorize exactly one live Gate-1 trajectory"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: thrumely-vercel-gate1
+  cancel-in-progress: false
+
+jobs:
+  gate1:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.authorization == 'RUN_CAL_OPENAI_001' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify authorization and Gateway secret
+        env:
+          AUTHORIZATION: ${{ inputs.authorization }}
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+        run: |
+          test "$AUTHORIZATION" = "RUN_CAL_OPENAI_001"
+          test -n "$AI_GATEWAY_API_KEY"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.11"
+
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e '.[test,openai]'
+
+      - name: Run exactly one Vercel Gate-1 canary
+        env:
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+        run: |
+          python -m thrumely.calibration \
+            --tasks calibration/tasks/openai-smoke.json \
+            --task-id cal-openai-001 \
+            --output results/calibration \
+            --transport vercel-gateway \
+            --execute-live
+
+      - name: Preserve calibration bundle for inspection
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vercel-gate1-${{ github.run_id }}
+          path: results/calibration
+          if-no-files-found: warn
+          retention-days: 7
