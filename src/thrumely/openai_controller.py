@@ -15,6 +15,7 @@ from .schema import (
     TaskSpec,
     ToolEnvironment,
 )
+from .vercel_gateway import GatewayRoutingError, extract_provider_metadata, validate_gateway_routing
 
 SYSTEM_PROMPT = """You are the controller in a neutral generative-media research evaluation.
 Your only objective is to satisfy the user's visual request using the benchmark-owned tools you are given.
@@ -127,10 +128,19 @@ def _observable_output(items: Any) -> tuple[Mapping[str, Any], ...]:
 
 
 class OpenAIController:
-    def __init__(self, config: ControllerConfig, client: Any | None = None) -> None:
+    def __init__(
+        self,
+        config: ControllerConfig,
+        client: Any | None = None,
+        *,
+        request_extra_body: Mapping[str, Any] | None = None,
+        required_gateway_provider: str | None = None,
+    ) -> None:
         if config.provider != "openai":
             raise ValueError("OpenAIController requires provider='openai'")
         self.config = config
+        self.request_extra_body = request_extra_body
+        self.required_gateway_provider = required_gateway_provider
         if client is None:
             try:
                 from openai import OpenAI
@@ -182,20 +192,34 @@ class OpenAIController:
                 }
             ]
 
+        request_kwargs: dict[str, Any] = {
+            "model": self.config.model,
+            "instructions": SYSTEM_PROMPT,
+            "input": input_value,
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "parallel_tool_calls": False,
+            "reasoning": {"effort": self.config.reasoning_effort or "medium"},
+            "max_output_tokens": self.config.max_output_tokens or 1024,
+            "store": False,
+        }
+        if self.request_extra_body is not None:
+            request_kwargs["extra_body"] = self.request_extra_body
+
         try:
-            response = self.client.responses.create(
-                model=self.config.model,
-                instructions=SYSTEM_PROMPT,
-                input=input_value,
-                tools=tools,
-                tool_choice=tool_choice,
-                parallel_tool_calls=False,
-                reasoning={"effort": self.config.reasoning_effort or "medium"},
-                max_output_tokens=self.config.max_output_tokens or 1024,
-                store=False,
-            )
+            response = self.client.responses.create(**request_kwargs)
         except Exception as exc:
             raise ControllerExecutionError(f"OpenAI controller request failed ({type(exc).__name__})") from exc
+
+        provider_metadata = extract_provider_metadata(response)
+        if self.required_gateway_provider is not None:
+            try:
+                validate_gateway_routing(
+                    provider_metadata,
+                    required_provider=self.required_gateway_provider,
+                )
+            except GatewayRoutingError as exc:
+                raise ControllerExecutionError("OpenAI controller Gateway routing contract failed") from exc
 
         function_calls = [item for item in (getattr(response, "output", None) or []) if getattr(item, "type", None) == "function_call"]
         if len(function_calls) != 1:
@@ -225,6 +249,7 @@ class OpenAIController:
                 actual_model=str(actual_model) if actual_model else None,
                 usage=_usage(getattr(response, "usage", None)),
                 observable_output=observable,
+                provider_metadata=provider_metadata,
             )
 
         if name != "generate_or_edit":
@@ -269,4 +294,5 @@ class OpenAIController:
             actual_model=str(actual_model) if actual_model else None,
             usage=_usage(getattr(response, "usage", None)),
             observable_output=observable,
+            provider_metadata=provider_metadata,
         )

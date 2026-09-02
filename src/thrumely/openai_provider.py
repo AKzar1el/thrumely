@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 from .interfaces import ProviderMediaResult
 from .schema import MediaOperation, NormalizedMediaRequest
+from .vercel_gateway import GatewayRoutingError, extract_provider_metadata, validate_gateway_routing
 
 _MODEL = "gpt-image-2-2026-04-21"
 _SIZE_BY_ASPECT = {
@@ -100,8 +101,17 @@ class OpenAIImageProvider:
     provider = "openai"
     backend_id = "openai:gpt-image-2"
 
-    def __init__(self, model: str = _MODEL, client: Any | None = None) -> None:
+    def __init__(
+        self,
+        model: str = _MODEL,
+        client: Any | None = None,
+        *,
+        request_extra_body: Mapping[str, Any] | None = None,
+        required_gateway_provider: str | None = None,
+    ) -> None:
         self.model = model
+        self.request_extra_body = request_extra_body
+        self.required_gateway_provider = required_gateway_provider
         if client is None:
             try:
                 from openai import OpenAI
@@ -128,35 +138,47 @@ class OpenAIImageProvider:
             "output_format": "png",
             "operation": request.operation.value,
         }
+        if self.request_extra_body is not None:
+            raw_request["transport_options"] = _primitive(self.request_extra_body)
+
+        common_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "prompt": request.prompt,
+            "size": size,
+            "quality": quality,
+            "output_format": "png",
+        }
+        if self.request_extra_body is not None:
+            common_kwargs["extra_body"] = self.request_extra_body
 
         started = time.perf_counter()
         try:
             if request.operation is MediaOperation.GENERATE:
-                result = self.client.images.generate(
-                    model=self.model,
-                    prompt=request.prompt,
-                    size=size,
-                    quality=quality,
-                    output_format="png",
-                )
+                result = self.client.images.generate(**common_kwargs)
             else:
                 if previous_media is None:
                     raise ValueError("edit_previous requires previous_media bytes")
                 filename, mime_type = _edit_media_descriptor(previous_media)
                 raw_request["previous_media_mime_type"] = mime_type
                 result = self.client.images.edit(
-                    model=self.model,
                     image=(filename, previous_media, mime_type),
-                    prompt=request.prompt,
-                    size=size,
-                    quality=quality,
-                    output_format="png",
+                    **common_kwargs,
                 )
         except ValueError:
             raise
         except Exception as exc:
             raise ProviderExecutionError(f"OpenAI image request failed ({type(exc).__name__})") from exc
         latency = time.perf_counter() - started
+
+        provider_metadata = extract_provider_metadata(result)
+        if self.required_gateway_provider is not None:
+            try:
+                validate_gateway_routing(
+                    provider_metadata,
+                    required_provider=self.required_gateway_provider,
+                )
+            except GatewayRoutingError as exc:
+                raise ProviderExecutionError("OpenAI image Gateway routing contract failed") from exc
 
         data = getattr(result, "data", None) or []
         if not data or not getattr(data[0], "b64_json", None):
