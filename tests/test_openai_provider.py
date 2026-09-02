@@ -15,6 +15,14 @@ def png_bytes(width: int = 321, height: int = 654) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", width, height) + b"\x08\x06\x00\x00\x00"
 
 
+def jpeg_bytes() -> bytes:
+    return b"\xff\xd8\xff\xe0" + b"jpeg-test-data"
+
+
+def webp_bytes() -> bytes:
+    return b"RIFF" + struct.pack("<I", 16) + b"WEBP" + b"VP8 " + b"webp-test-data"
+
+
 class FakeImages:
     def __init__(self) -> None:
         self.generate_kwargs = None
@@ -109,9 +117,10 @@ def test_edit_requires_previous_media_bytes() -> None:
 def test_edit_uses_previous_media_and_same_normalized_controls() -> None:
     client = FakeClient()
     provider = OpenAIImageProvider(client=client)
+    previous_media = png_bytes()
     result = provider.execute(
         request(operation=MediaOperation.EDIT_PREVIOUS, previous_artifact_id="artifact-1"),
-        previous_media=b"prior-png",
+        previous_media=previous_media,
     )
 
     kwargs = client.images.edit_kwargs
@@ -120,11 +129,49 @@ def test_edit_uses_previous_media_and_same_normalized_controls() -> None:
     assert kwargs["size"] == "1024x1024"
     assert kwargs["quality"] == "medium"
     assert kwargs["output_format"] == "png"
-    assert kwargs["image"].read() == b"prior-png"
+    assert kwargs["image"] == ("previous.png", previous_media, "image/png")
+    assert result.raw_request["previous_media_mime_type"] == "image/png"
     assert result.media_bytes == png_bytes(777, 888)
     assert result.width == 777
     assert result.height == 888
     assert result.request_id == "req_edit"
+
+
+@pytest.mark.parametrize(
+    ("previous_media", "filename", "mime_type"),
+    [
+        (jpeg_bytes(), "previous.jpg", "image/jpeg"),
+        (webp_bytes(), "previous.webp", "image/webp"),
+    ],
+)
+def test_edit_preserves_supported_previous_media_format(
+    previous_media: bytes,
+    filename: str,
+    mime_type: str,
+) -> None:
+    client = FakeClient()
+    provider = OpenAIImageProvider(client=client)
+
+    result = provider.execute(
+        request(operation=MediaOperation.EDIT_PREVIOUS, previous_artifact_id="artifact-1"),
+        previous_media=previous_media,
+    )
+
+    assert client.images.edit_kwargs["image"] == (filename, previous_media, mime_type)
+    assert result.raw_request["previous_media_mime_type"] == mime_type
+
+
+def test_edit_rejects_unknown_previous_media_before_sdk_call() -> None:
+    client = FakeClient()
+    provider = OpenAIImageProvider(client=client)
+
+    with pytest.raises(ValueError, match="PNG, JPEG, or WebP"):
+        provider.execute(
+            request(operation=MediaOperation.EDIT_PREVIOUS, previous_artifact_id="artifact-1"),
+            previous_media=b"not-a-supported-image",
+        )
+
+    assert client.images.edit_kwargs is None
 
 
 def test_provider_wraps_sdk_failure_as_typed_execution_error() -> None:
