@@ -202,6 +202,8 @@ def run_modal_control_surface(
                 }
             )
             successful += 1
+            if not dimension_match:
+                break
             if probe["probe_id"] == "standard-square-generate":
                 first_media = provider_result.media_bytes
                 first_artifact_id = artifact.artifact_id
