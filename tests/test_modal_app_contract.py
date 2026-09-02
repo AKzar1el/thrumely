@@ -88,10 +88,11 @@ def test_inference_contract_supports_generate_and_exact_reference_edit() -> None
     assert '"model_revision": MODEL_REVISION' in text
 
 
-def test_web_endpoint_requires_modal_proxy_auth() -> None:
+def test_web_endpoint_requires_modal_proxy_auth_and_forwards_only_validated_payload() -> None:
     text = source()
     assert '@modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)' in text
-    assert "Flux2KleinReference().infer.remote(payload)" in text
+    assert "validated = _validate_payload(payload)" in text
+    assert "Flux2KleinReference().infer.remote(validated)" in text
     forbidden = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "ak-", "as-")
     for value in forbidden:
         assert value not in text
