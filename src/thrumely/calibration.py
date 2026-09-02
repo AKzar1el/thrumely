@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import platform
-import shutil
 import subprocess
 import urllib.error
 import urllib.request
@@ -251,7 +250,20 @@ def run_calibration(
     resolved_run_id = run_id or f"calibration-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     run_dir = output_root / resolved_run_id
     run_dir.mkdir(parents=True, exist_ok=False)
-    shutil.copyfile(task_path, run_dir / "tasks.json")
+    _write_json(
+        run_dir / "tasks.json",
+        {
+            "calibration_only": True,
+            "tasks": [
+                {
+                    "task_id": task.task_id,
+                    "family": task.family,
+                    "instruction": task.instruction,
+                }
+                for task in tasks
+            ],
+        },
+    )
     store = ArtifactStore(run_dir)
 
     backend_id = str(provider.backend_id)
@@ -338,7 +350,15 @@ def run_calibration(
                 for artifact in media_records
             ):
                 media_records.append(first_artifact)
-            events.append({"type": "terminal_error", "error_type": type(exc).__name__, "message": str(exc)})
+            terminal_event: dict[str, Any] = {
+                "type": "terminal_error",
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            }
+            diagnostics = getattr(exc, "diagnostics", None)
+            if isinstance(diagnostics, Mapping) and diagnostics:
+                terminal_event["diagnostics"] = dict(diagnostics)
+            events.append(terminal_event)
 
         trajectories.append(
             TrajectoryRecord(

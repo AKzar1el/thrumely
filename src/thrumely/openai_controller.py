@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from typing import Any, Mapping
 
 from .hashing import sha256_bytes
@@ -27,6 +28,8 @@ Do not explain hidden reasoning. Return only the required tool decision."""
 
 _ASPECT_RATIOS = ("1:1", "3:2", "2:3", "16:9", "9:16")
 _QUALITY_TIERS = ("draft", "standard", "high")
+_SECRET_TOKEN = re.compile(r"(?i)\b(?:sk|key|token|secret)[-_][A-Za-z0-9._~+/=-]{8,}\b")
+_BEARER_TOKEN = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+")
 
 
 class ControllerProtocolError(RuntimeError):
@@ -34,7 +37,9 @@ class ControllerProtocolError(RuntimeError):
 
 
 class ControllerExecutionError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, diagnostics: Mapping[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.diagnostics = dict(diagnostics or {})
 
 
 def system_prompt_sha256() -> str:
@@ -62,6 +67,56 @@ def _primitive(value: Any) -> Any:
 def _usage(value: Any) -> Mapping[str, Any]:
     primitive = _primitive(value)
     return primitive if isinstance(primitive, dict) else {}
+
+
+def _redact_error_message(value: str) -> str:
+    redacted = _BEARER_TOKEN.sub("Bearer [REDACTED]", value)
+    redacted = _SECRET_TOKEN.sub("[REDACTED]", redacted)
+    return redacted[:500]
+
+
+def _safe_error_diagnostics(exc: Exception) -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {"exception_class": type(exc).__name__}
+
+    status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int) and 100 <= status_code <= 599:
+        diagnostics["status_code"] = status_code
+
+    body = getattr(exc, "body", None)
+    body_mapping = body if isinstance(body, Mapping) else {}
+
+    error_type = getattr(exc, "type", None)
+    if not isinstance(error_type, (str, int, float, bool)):
+        error_type = body_mapping.get("type")
+    if isinstance(error_type, (str, int, float, bool)):
+        diagnostics["error_type"] = error_type
+
+    error_code = getattr(exc, "code", None)
+    if not isinstance(error_code, (str, int, float, bool)):
+        error_code = body_mapping.get("code")
+    if isinstance(error_code, (str, int, float, bool)):
+        diagnostics["error_code"] = error_code
+
+    error_message = body_mapping.get("message")
+    if isinstance(error_message, str) and error_message:
+        diagnostics["error_message"] = _redact_error_message(error_message)
+
+    request_id = getattr(exc, "request_id", None)
+    if isinstance(request_id, str) and request_id:
+        diagnostics["request_id"] = request_id[:200]
+
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is not None and hasattr(headers, "get"):
+        if "request_id" not in diagnostics:
+            header_request_id = headers.get("x-request-id")
+            if isinstance(header_request_id, str) and header_request_id:
+                diagnostics["request_id"] = header_request_id[:200]
+        vercel_id = headers.get("x-vercel-id")
+        if isinstance(vercel_id, str) and vercel_id:
+            diagnostics["x_vercel_id"] = vercel_id[:300]
+
+    return diagnostics
 
 
 def _media_tool(environment: ToolEnvironment, *, allow_edit: bool) -> dict[str, Any]:
@@ -209,7 +264,10 @@ class OpenAIController:
         try:
             response = self.client.responses.create(**request_kwargs)
         except Exception as exc:
-            raise ControllerExecutionError(f"OpenAI controller request failed ({type(exc).__name__})") from exc
+            raise ControllerExecutionError(
+                f"OpenAI controller request failed ({type(exc).__name__})",
+                diagnostics=_safe_error_diagnostics(exc),
+            ) from exc
 
         provider_metadata = extract_provider_metadata(response)
         if self.required_gateway_provider is not None:
