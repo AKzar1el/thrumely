@@ -174,6 +174,8 @@ class Flux2KleinReference:
             try:
                 previous_bytes = base64.b64decode(encoded, validate=True)
                 with Image.open(io.BytesIO(previous_bytes)) as image:
+                    if image.format not in {"PNG", "JPEG"}:
+                        raise ValueError("unsupported previous image format")
                     image.load()
                     previous_image = image.convert("RGB")
             except Exception as exc:
