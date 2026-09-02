@@ -218,7 +218,7 @@ class Flux2KleinReference:
         }
 
 
-@app.function(image=web_image, retries=0, timeout=360)
+@app.function(image=web_image, timeout=360)
 @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
 def infer(payload: dict[str, Any]):
     from fastapi.responses import JSONResponse
