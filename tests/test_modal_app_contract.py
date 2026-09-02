@@ -97,3 +97,18 @@ def test_web_endpoint_requires_modal_proxy_auth_and_forwards_only_validated_payl
     forbidden = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "ak-", "as-")
     for value in forbidden:
         assert value not in text
+
+
+def test_web_endpoint_omits_unsupported_retry_policy() -> None:
+    tree = ast.parse(source())
+    infer_function = next(
+        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "infer"
+    )
+    app_function_decorator = next(
+        decorator
+        for decorator in infer_function.decorator_list
+        if isinstance(decorator, ast.Call)
+        and isinstance(decorator.func, ast.Attribute)
+        and decorator.func.attr == "function"
+    )
+    assert all(keyword.arg != "retries" for keyword in app_function_decorator.keywords)
