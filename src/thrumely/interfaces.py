@@ -64,6 +64,7 @@ class ControllerDecision:
     actual_model: str | None
     usage: Mapping[str, Any] = field(default_factory=dict)
     observable_output: tuple[Mapping[str, Any], ...] = field(default_factory=tuple)
+    provider_metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.action not in {"media", "finish"}:
