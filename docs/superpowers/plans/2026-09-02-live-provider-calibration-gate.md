@@ -11,7 +11,24 @@
 - OpenAI, Google, and BFL image adapters exist behind the benchmark-owned normalized media contract; Anthropic and OpenAI controller adapters exist behind the same controller semantics.
 - Static normalization passes only at the schema level. It does not establish provider comparability.
 - PR #12 (`8d65f8fc2dab110d76ef5ee21cf28074abf4da17`) hardened the OpenAI live calibration path so the CLI is dry-run by default, requires exactly one `cal-*` task, requires explicit `--execute-live`, retains the two-media-call ceiling, and disables OpenAI SDK automatic retries (`max_retries=0`).
-- No live image-provider calibration result has yet been promoted into benchmark evidence.
+- A live Modal-hosted FLUX.2 Klein 4B **open-weight reference calibration** has now completed separately. It is reference instrumentation only and has not been promoted into benchmark evidence or any managed-provider gate. Full measured findings: `docs/providers/MODAL_REFERENCE_CALIBRATION_2026-09-02.md`.
+- No live **managed image-provider** calibration result has yet been promoted into benchmark evidence.
+
+## Completed side calibration — Modal open-weight reference
+
+On 2026-09-02, the calibration-only backend `modal:flux-2-klein-4b-reference` successfully exercised pinned `black-forest-labs/FLUX.2-klein-4B` revision `e7b7dc27f91deacad38e78976d1f2b499d76a294` on Modal L4 infrastructure.
+
+Measured reference facts:
+
+- four fixed direct probes completed at the expected normalized dimensions with seeds 0–3 and zero automatic retries;
+- the exact four direct PNG hashes reproduced across two separate live runs under the pinned deployment;
+- `edit_previous` accepted the exact prior artifact and produced the requested background change, although manual inspection found small non-background rendering changes as well;
+- one Cloudflare Gemma → Modal reference `cal-openai-005` trajectory completed with exactly two media calls and no infrastructure error;
+- manual visual review found that task 005 still failed its exact typography constraints (`Espresso` / `Cocoa` were not rendered exactly), so trajectory completion must not be read as task-quality success;
+- the captured Modal billed cost remained `$0.00`; observed metered usage was covered by account credits;
+- both ephemeral inference proxy tokens were deleted successfully after their runs.
+
+This evidence closes only the **open-weight reference instrumentation** question. It does not pass Gate 1, Gate 2, Gate 3, or Gate 4 for OpenAI/Google/BFL, does not establish provider causality, and must not enter the frozen-v1 provider matrix or production corpus.
 
 ## Non-negotiable scientific boundaries
 
@@ -241,5 +258,7 @@ The existing synthetic freeze preflight must remain permanently unable to author
 ## Immediate next executable action
 
 The next paid action, when legitimate OpenAI API balance/access is deliberately available, is **Gate 1 only: one `cal-openai-001` trajectory**. Until then, all productive work should stay in Gates 0/3 infrastructure and documentation and must consume zero hosted-inference credits.
+
+The completed Modal open-weight reference calibration does not change that managed-provider next action and must not be used as a substitute for it.
 
 This plan intentionally does not schedule the remaining four OpenAI calibration tasks or a human pilot. Those become justified only by evidence from the preceding gate, not by momentum.
