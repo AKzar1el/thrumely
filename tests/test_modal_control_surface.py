@@ -16,9 +16,10 @@ class FakeProvider:
     backend_id = BACKEND_ID
     model = MODEL_ID
 
-    def __init__(self, *, fail_on_call: int | None = None) -> None:
+    def __init__(self, *, fail_on_call: int | None = None, mismatch_on_call: int | None = None) -> None:
         self.calls = []
         self.fail_on_call = fail_on_call
+        self.mismatch_on_call = mismatch_on_call
 
     def execute(self, request, previous_media=None, *, seed=0):
         self.calls.append((request, previous_media, seed))
@@ -26,6 +27,8 @@ class FakeProvider:
         if self.fail_on_call == call_index:
             raise ProviderExecutionError("synthetic provider detail must not leak")
         width, height = quality_tier_to_dimensions(request.aspect_ratio, request.quality_tier)
+        if self.mismatch_on_call == call_index:
+            width += 16
         media = f"modal-media-{call_index}-{seed}-{request.operation.value}".encode()
         return ProviderMediaResult(
             media_bytes=media,
@@ -138,6 +141,25 @@ def test_runner_stops_on_first_provider_failure_without_retrying_or_echoing_deta
     assert manifest["status"] == "error"
     assert manifest["completed_provider_executions"] == 2
     assert manifest["successful_provider_executions"] == 1
+
+
+def test_runner_stops_immediately_on_dimension_mismatch_to_avoid_extra_compute(tmp_path: Path) -> None:
+    tasks = _task_file(tmp_path / "tasks.json")
+    provider = FakeProvider(mismatch_on_call=1)
+    run_dir = run_modal_control_surface(
+        tmp_path / "out", tasks, provider, task_id="cal-modal-001", run_id="modal-mismatch"
+    )
+
+    assert len(provider.calls) == 1
+    rows = [json.loads(line) for line in (run_dir / "results.jsonl").read_text().splitlines() if line]
+    assert len(rows) == 1
+    assert rows[0]["status"] == "success"
+    assert rows[0]["dimension_match"] is False
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest["status"] == "error"
+    assert manifest["completed_provider_executions"] == 1
+    assert manifest["successful_provider_executions"] == 1
+    assert manifest["all_dimensions_match"] is False
 
 
 def test_cli_is_dry_run_by_default_without_modal_credentials_or_output(tmp_path: Path, monkeypatch, capsys) -> None:
