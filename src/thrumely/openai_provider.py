@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import io
 import time
 from typing import Any, Mapping
 
@@ -73,6 +72,16 @@ def _usage_dict(result: Any) -> Mapping[str, Any]:
     return primitive if isinstance(primitive, dict) else {}
 
 
+def _edit_media_descriptor(media_bytes: bytes) -> tuple[str, str]:
+    if media_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "previous.png", "image/png"
+    if media_bytes.startswith(b"\xff\xd8\xff"):
+        return "previous.jpg", "image/jpeg"
+    if len(media_bytes) >= 12 and media_bytes[:4] == b"RIFF" and media_bytes[8:12] == b"WEBP":
+        return "previous.webp", "image/webp"
+    raise ValueError("unsupported previous_media image format: expected PNG, JPEG, or WebP")
+
+
 def _png_dimensions(media_bytes: bytes) -> tuple[int, int]:
     if len(media_bytes) < 24 or media_bytes[:8] != b"\x89PNG\r\n\x1a\n" or media_bytes[12:16] != b"IHDR":
         raise ProviderExecutionError("OpenAI image response was not a valid PNG artifact")
@@ -133,11 +142,11 @@ class OpenAIImageProvider:
             else:
                 if previous_media is None:
                     raise ValueError("edit_previous requires previous_media bytes")
-                image = io.BytesIO(previous_media)
-                image.name = "previous.png"
+                filename, mime_type = _edit_media_descriptor(previous_media)
+                raw_request["previous_media_mime_type"] = mime_type
                 result = self.client.images.edit(
                     model=self.model,
-                    image=image,
+                    image=(filename, previous_media, mime_type),
                     prompt=request.prompt,
                     size=size,
                     quality=quality,
