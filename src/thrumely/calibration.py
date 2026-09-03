@@ -49,6 +49,11 @@ from .vercel_gateway import (
 )
 
 
+_VERCEL_SOL_PROFILE = "sol-gate1"
+_VERCEL_GPT54_MINI_DIAGNOSTIC_PROFILE = "gpt54-mini-diagnostic"
+_VERCEL_GPT54_MINI_DIAGNOSTIC_MODEL = "openai/gpt-5.4-mini"
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -424,6 +429,18 @@ def _openai_sdk_version() -> str:
         raise RuntimeError("OpenAI live calibration requires `pip install -e '.[openai]'`") from exc
 
 
+def _vercel_controller_selection(profile: str) -> tuple[str, str, bool]:
+    if profile == _VERCEL_GPT54_MINI_DIAGNOSTIC_PROFILE:
+        return (
+            _VERCEL_GPT54_MINI_DIAGNOSTIC_MODEL,
+            "openai-gpt54-mini-vercel-diagnostic",
+            True,
+        )
+    if profile == _VERCEL_SOL_PROFILE:
+        return VERCEL_CONTROLLER_MODEL, "openai-sol-vercel-calibration", False
+    raise ValueError(f"unsupported Vercel controller profile: {profile}")
+
+
 def _run_direct_openai(args: argparse.Namespace, sdk_version: str) -> Path:
     config = ControllerConfig(
         controller_id="openai-sol-calibration",
@@ -462,6 +479,8 @@ def _run_vercel_gateway(args: argparse.Namespace, api_key: str) -> Path:
     except ImportError as exc:
         raise RuntimeError("Vercel Gateway calibration requires `pip install -e '.[openai]'`") from exc
 
+    profile = getattr(args, "vercel_controller_profile", _VERCEL_SOL_PROFILE)
+    controller_model, controller_id, diagnostic_only = _vercel_controller_selection(profile)
     client = OpenAI(
         api_key=api_key,
         base_url=VERCEL_GATEWAY_BASE_URL,
@@ -469,9 +488,9 @@ def _run_vercel_gateway(args: argparse.Namespace, api_key: str) -> Path:
     )
     request_extra_body = openai_only_extra_body()
     config = ControllerConfig(
-        controller_id="openai-sol-vercel-calibration",
+        controller_id=controller_id,
         provider="openai",
-        model=VERCEL_CONTROLLER_MODEL,
+        model=controller_model,
         reasoning_effort="medium",
         max_output_tokens=1024,
         system_prompt_sha256=system_prompt_sha256(),
@@ -493,7 +512,11 @@ def _run_vercel_gateway(args: argparse.Namespace, api_key: str) -> Path:
         "kind": "vercel-ai-gateway",
         "base_url": VERCEL_GATEWAY_BASE_URL,
         "upstream_provider_required": "openai",
-        "controller_gateway_model": VERCEL_CONTROLLER_MODEL,
+        "controller_profile": profile,
+        "controller_gateway_model": controller_model,
+        "intended_gate1_controller_model": VERCEL_CONTROLLER_MODEL,
+        "diagnostic_only": diagnostic_only,
+        "counts_as_sol_gate1_evidence": not diagnostic_only,
         "image_gateway_model": VERCEL_IMAGE_MODEL,
         "image_gateway_release_date": VERCEL_IMAGE_RELEASE_DATE,
         "exact_snapshot_equivalence_established": False,
@@ -533,6 +556,12 @@ def main() -> None:
         help="Calibration transport. Direct OpenAI remains the default.",
     )
     parser.add_argument(
+        "--vercel-controller-profile",
+        choices=(_VERCEL_SOL_PROFILE, _VERCEL_GPT54_MINI_DIAGNOSTIC_PROFILE),
+        default=_VERCEL_SOL_PROFILE,
+        help="Vercel-only controller profile. GPT-5.4 Mini is diagnostic-only and never Sol Gate-1 evidence.",
+    )
+    parser.add_argument(
         "--execute-live",
         action="store_true",
         help="Authorize the selected calibration transport to make live API calls; omitted means zero-cost dry-run only",
@@ -545,19 +574,28 @@ def main() -> None:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
+    if args.transport != "vercel-gateway" and args.vercel_controller_profile != _VERCEL_SOL_PROFILE:
+        raise SystemExit("--vercel-controller-profile is only valid with --transport vercel-gateway")
+
+    controller_model, _, diagnostic_only = _vercel_controller_selection(args.vercel_controller_profile)
     if not args.execute_live:
-        print(
-            json.dumps(
+        payload: dict[str, Any] = {
+            "status": "DRY_RUN_ONLY",
+            "task_id": args.task_id,
+            "transport": args.transport,
+            "maximum_media_calls": 2,
+            "live_execution_authorized": False,
+        }
+        if args.transport == "vercel-gateway":
+            payload.update(
                 {
-                    "status": "DRY_RUN_ONLY",
-                    "task_id": args.task_id,
-                    "transport": args.transport,
-                    "maximum_media_calls": 2,
-                    "live_execution_authorized": False,
-                },
-                sort_keys=True,
+                    "controller_profile": args.vercel_controller_profile,
+                    "controller_model": controller_model,
+                    "diagnostic_only": diagnostic_only,
+                    "counts_as_sol_gate1_evidence": not diagnostic_only,
+                }
             )
-        )
+        print(json.dumps(payload, sort_keys=True))
         return
 
     if args.transport == "openai-direct":
