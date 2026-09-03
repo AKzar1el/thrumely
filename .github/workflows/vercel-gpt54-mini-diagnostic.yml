@@ -1,0 +1,60 @@
+name: Vercel GPT-5.4 Mini Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: "Type RUN_GPT54_MINI_DIAGNOSTIC to authorize exactly one diagnostic trajectory"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: thrumely-vercel-gpt54-mini-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnostic:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.authorization == 'RUN_GPT54_MINI_DIAGNOSTIC' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify authorization and Gateway secret
+        env:
+          AUTHORIZATION: ${{ inputs.authorization }}
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+        run: |
+          test "$AUTHORIZATION" = "RUN_GPT54_MINI_DIAGNOSTIC"
+          test -n "$AI_GATEWAY_API_KEY"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.11"
+
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e '.[test,openai]'
+
+      - name: Run exactly one GPT-5.4 Mini diagnostic
+        env:
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+        run: |
+          python -m thrumely.calibration \
+            --tasks calibration/tasks/openai-smoke.json \
+            --task-id cal-openai-001 \
+            --output results/calibration \
+            --transport vercel-gateway \
+            --vercel-controller-profile gpt54-mini-diagnostic \
+            --execute-live
+
+      - name: Preserve diagnostic bundle for inspection
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vercel-gpt54-mini-diagnostic-${{ github.run_id }}
+          path: results/calibration
+          if-no-files-found: warn
+          retention-days: 7
